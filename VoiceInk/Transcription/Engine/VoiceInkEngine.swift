@@ -97,6 +97,13 @@ class VoiceInkEngine: NSObject, ObservableObject {
     @Published var partialTranscript: String = ""
     var currentSession: TranscriptionSession?
     private var currentSessionTranscriptionConfiguration: TranscriptionRuntimeConfiguration?
+
+    var recorderLanguageCode: String {
+        KeyboardLanguagePolicy.twoLetterDisplayCode(
+            for: currentSessionTranscriptionConfiguration?.language
+        )
+    }
+
     private var activeRecordingStartID: UUID?
     private var activePipelineTranscriptionID: UUID?
     private var canceledPipelineTranscriptionIDs = Set<UUID>()

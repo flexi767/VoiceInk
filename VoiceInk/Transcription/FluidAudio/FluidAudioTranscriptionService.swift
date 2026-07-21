@@ -159,8 +159,15 @@ class FluidAudioTranscriptionService: TranscriptionService {
                 context.language,
                 for: model
             )
-            let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: compatibleLanguage)
+            let resolvedLanguage: String
+            if KeyboardLanguagePolicy.applies(to: model) {
+                resolvedLanguage = await KeyboardLanguagePolicy.resolvedLanguage(compatibleLanguage)
+            } else {
+                resolvedLanguage = compatibleLanguage
+            }
+            let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: resolvedLanguage)
             await nemotronAsrManager.setLanguage(languageHint)
+            await nemotronAsrManager.setForcedPrefix(KeyboardLanguagePolicy.applies(to: model))
             await nemotronAsrManager.reset()
 
             var speechAudio = try loadAudioSamples(from: audioURL)

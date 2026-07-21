@@ -2,12 +2,19 @@ import Foundation
 
 enum TranscriptionLanguageSupport {
     static func languages(for model: any TranscriptionModel, realtimeEnabled: Bool? = nil) -> [String: String] {
-        model.supportedLanguages
+        if KeyboardLanguagePolicy.applies(to: model) {
+            return KeyboardLanguagePolicy.selectableLanguages
+        }
+        return model.supportedLanguages
     }
 
     static func validLanguageOrFallback(
         _ language: String?, for model: any TranscriptionModel, realtimeEnabled: Bool? = nil
     ) -> String {
+        if KeyboardLanguagePolicy.applies(to: model) {
+            return KeyboardLanguagePolicy.validLanguageOrFallback(language)
+        }
+
         let languages = languages(for: model, realtimeEnabled: realtimeEnabled)
 
         if let language, languages[language] != nil {

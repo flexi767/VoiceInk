@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 enum StarterModeFactory {
-    static let defaultTranscriptionModelName = "parakeet-tdt-0.6b-v3"
+    static let defaultTranscriptionModelName = KeyboardLanguagePolicy.nemotronModelName
 
     static func install(
         kinds: [StarterModeKind],
@@ -10,7 +10,7 @@ enum StarterModeFactory {
         modelName: String?,
         transcriptionModelName: String = defaultTranscriptionModelName,
         isRealtimeTranscriptionEnabled: Bool = true,
-        selectedLanguage: String = "auto",
+        selectedLanguage: String = KeyboardLanguagePolicy.followKeyboardCode,
         installedApps: [InstalledAppInfo]? = nil
     ) {
         let manager = ModeManager.shared

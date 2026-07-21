@@ -39,8 +39,8 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 0) {
-            Group {
+        ZStack {
+            HStack(spacing: 6) {
                 if shouldShowCloseButton {
                     RecorderCloseButton(action: onCloseTapped)
                 } else {
@@ -48,24 +48,23 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
                         recordingState: stateProvider.recordingState,
                         action: onRecordButtonTapped
                     )
+                    RecorderLanguageCode(code: stateProvider.recorderLanguageCode)
                 }
             }
             .padding(.leading, 10)
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             RecorderStatusDisplay(
                 currentState: stateProvider.recordingState,
                 audioMeter: recorder.audioMeter
             )
 
-            Spacer(minLength: 0)
-
             RecorderModeButton(
                 buttonSize: 22,
                 padding: EdgeInsets()
             )
             .padding(.trailing, 12)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(height: controlBarHeight)
     }

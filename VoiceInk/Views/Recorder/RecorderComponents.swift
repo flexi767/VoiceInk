@@ -369,6 +369,19 @@ struct RecorderStatusDisplay: View {
     }
 }
 
+// MARK: - Active Language
+
+struct RecorderLanguageCode: View {
+    let code: String
+
+    var body: some View {
+        Text(code)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color.white.opacity(0.65))
+            .accessibilityLabel(Text("Transcription language: \(code)"))
+    }
+}
+
 // MARK: - Assistant Response Panel
 
 struct AssistantPanelView: View {

@@ -3,6 +3,10 @@ DEPS_DIR := $(HOME)/VoiceInk-Dependencies
 WHISPER_CPP_DIR := $(DEPS_DIR)/whisper.cpp
 FRAMEWORK_PATH := $(WHISPER_CPP_DIR)/build-apple/whisper.xcframework
 LOCAL_DERIVED_DATA := $(CURDIR)/.local-build
+LOCAL_SIGNING_IDENTITY := Apple Development: i@jlzov.com (SFRBKW6P78)
+LOCAL_SIGNING_CERT_SHA1 := 158D75C090FD771527624707372E63CB8952B69A
+LOCAL_DEVELOPMENT_TEAM := NKW2BHRJH2
+LOCAL_APP_PATH := /Applications/VoiceInk.app
 
 .PHONY: all clean whisper setup build local check healthcheck help dev run
 
@@ -44,29 +48,38 @@ setup: whisper
 build: setup
 	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Debug CODE_SIGN_IDENTITY="" build
 
-# Build for local use without Apple Developer certificate
+# Build, verify, install, and launch a persistently signed local app.
 local: check setup
-	@echo "Building VoiceInk for local use (no Apple Developer certificate required)..."
+	@security find-identity -v -p codesigning | grep -q "$(LOCAL_SIGNING_CERT_SHA1)" || { \
+		echo "Required signing certificate is unavailable: $(LOCAL_SIGNING_IDENTITY)"; \
+		exit 1; \
+	}
+	@echo "Building VoiceInk with $(LOCAL_SIGNING_IDENTITY)..."
 	@rm -rf "$(LOCAL_DERIVED_DATA)"
 	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Debug \
 		-derivedDataPath "$(LOCAL_DERIVED_DATA)" \
 		-xcconfig LocalBuild.xcconfig \
-		CODE_SIGN_IDENTITY="-" \
-		CODE_SIGNING_REQUIRED=NO \
+		CODE_SIGNING_REQUIRED=YES \
 		CODE_SIGNING_ALLOWED=YES \
-		DEVELOPMENT_TEAM="" \
 		CODE_SIGN_ENTITLEMENTS="$(CURDIR)/VoiceInk/VoiceInk.local.entitlements" \
 		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$$(inherited) LOCAL_BUILD' \
 		build
 	@APP_PATH="$(LOCAL_DERIVED_DATA)/Build/Products/Debug/VoiceInk.app" && \
 	if [ -d "$$APP_PATH" ]; then \
-		echo "Copying VoiceInk.app to ~/Downloads..."; \
-		rm -rf "$$HOME/Downloads/VoiceInk.app"; \
-		ditto "$$APP_PATH" "$$HOME/Downloads/VoiceInk.app"; \
-		xattr -cr "$$HOME/Downloads/VoiceInk.app"; \
+		codesign --verify --deep --strict "$$APP_PATH"; \
+		codesign -dvv "$$APP_PATH" 2>&1 | grep -q "Authority=$(LOCAL_SIGNING_IDENTITY)"; \
+		codesign -dvv "$$APP_PATH" 2>&1 | grep -q "TeamIdentifier=$(LOCAL_DEVELOPMENT_TEAM)"; \
+		echo "Installing VoiceInk.app in /Applications..."; \
+		pkill -x VoiceInk >/dev/null 2>&1 || true; \
+		rm -rf "$(LOCAL_APP_PATH)"; \
+		ditto "$$APP_PATH" "$(LOCAL_APP_PATH)"; \
+		xattr -cr "$(LOCAL_APP_PATH)"; \
+		codesign --verify --deep --strict "$(LOCAL_APP_PATH)"; \
+		/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$$APP_PATH" >/dev/null 2>&1 || true; \
+		rm -rf "$$APP_PATH"; \
+		open "$(LOCAL_APP_PATH)"; \
 		echo ""; \
-		echo "Build complete! App saved to: ~/Downloads/VoiceInk.app"; \
-		echo "Run with: open ~/Downloads/VoiceInk.app"; \
+		echo "Build complete, signature verified, and app launched: $(LOCAL_APP_PATH)"; \
 		echo ""; \
 		echo "Limitations of local builds:"; \
 		echo "  - No iCloud dictionary sync"; \
@@ -78,9 +91,9 @@ local: check setup
 
 # Run application
 run:
-	@if [ -d "$$HOME/Downloads/VoiceInk.app" ]; then \
-		echo "Opening ~/Downloads/VoiceInk.app..."; \
-		open "$$HOME/Downloads/VoiceInk.app"; \
+	@if [ -d "$(LOCAL_APP_PATH)" ]; then \
+		echo "Opening $(LOCAL_APP_PATH)..."; \
+		open "$(LOCAL_APP_PATH)"; \
 	else \
 		echo "Looking for VoiceInk.app in DerivedData..."; \
 		APP_PATH=$$(find "$$HOME/Library/Developer/Xcode/DerivedData" -name "VoiceInk.app" -type d | head -1) && \
@@ -106,7 +119,7 @@ help:
 	@echo "  whisper            Clone and build whisper.cpp XCFramework"
 	@echo "  setup              Copy whisper XCFramework to VoiceInk project"
 	@echo "  build              Build the VoiceInk Xcode project"
-	@echo "  local              Build for local use (no Apple Developer certificate needed)"
+	@echo "  local              Build, sign, install, and launch the local app"
 	@echo "  run                Launch the built VoiceInk app"
 	@echo "  dev                Build and run the app (for development)"
 	@echo "  all                Run full build process (default)"

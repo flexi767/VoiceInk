@@ -71,10 +71,14 @@ enum ModeRuntimeResolver {
 
         guard let model else { return nil }
 
-        let language = TranscriptionLanguageSupport.validLanguageOrFallback(
+        let configuredLanguage = TranscriptionLanguageSupport.validLanguageOrFallback(
             mode?.selectedLanguage,
             for: model,
             realtimeEnabled: mode?.isRealtimeTranscriptionEnabled
+        )
+        let language = KeyboardLanguagePolicy.requestLanguage(
+            configuredLanguage: configuredLanguage,
+            for: model
         )
 
         return TranscriptionRuntimeConfiguration(

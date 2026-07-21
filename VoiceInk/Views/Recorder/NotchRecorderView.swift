@@ -149,7 +149,7 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         ZStack {
             Color.clear
 
-            HStack(spacing: 14) {
+            HStack(spacing: 8) {
                 if shouldShowCloseButton {
                     RecorderCloseButton(action: onCloseTapped)
                 } else {
@@ -157,6 +157,7 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
                         recordingState: stateProvider.recordingState,
                         action: onRecordButtonTapped
                     )
+                    RecorderLanguageCode(code: stateProvider.recorderLanguageCode)
                 }
                 RecorderModeButton(buttonSize: 20, padding: EdgeInsets())
                 Spacer(minLength: 0)

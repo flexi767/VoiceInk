@@ -6,15 +6,6 @@ enum KeyboardLanguagePolicy {
     static let followKeyboardCode = "keyboard"
     static let nemotronModelName = "nemotron-multilingual-0.6b"
 
-    static let selectableLanguages: [String: String] = [
-        followKeyboardCode: "Follow Keyboard",
-        "bg-BG": "Bulgarian",
-        "de-DE": "German",
-        "en-US": "English",
-    ]
-
-    private static let explicitLanguages = Set(selectableLanguages.keys.filter { $0 != followKeyboardCode })
-
     struct InputSourceLanguageInfo {
         let languages: [String]
         let localizedName: String?
@@ -24,8 +15,43 @@ enum KeyboardLanguagePolicy {
         model.provider == .fluidAudio && model.name == nemotronModelName
     }
 
-    static func validLanguageOrFallback(_ language: String?) -> String {
-        guard let language, explicitLanguages.contains(language) || language == followKeyboardCode else {
+    static func selectableLanguages(for model: any TranscriptionModel) -> [String: String] {
+        selectableLanguages(
+            active: currentInputSource(),
+            enabled: enabledInputSources(),
+            supportedLanguages: model.supportedLanguages
+        )
+    }
+
+    static func selectableLanguages(
+        active: InputSourceLanguageInfo?,
+        enabled: [InputSourceLanguageInfo],
+        supportedLanguages: [String: String]
+    ) -> [String: String] {
+        let supported = supportedLanguageCodes(from: supportedLanguages)
+        let installed = orderedLanguages(active: active, enabled: enabled, supported: supported)
+        var result = [followKeyboardCode: "Follow Keyboard"]
+        for identifier in installed {
+            result[identifier] = supportedLanguages[identifier]
+                ?? localizedDisplayName(for: identifier)
+                ?? identifier
+        }
+        return result
+    }
+
+    static func validLanguageOrFallback(
+        _ language: String?,
+        for model: any TranscriptionModel
+    ) -> String {
+        let available = selectableLanguages(for: model)
+        return validLanguageOrFallback(language, availableLanguages: available)
+    }
+
+    static func validLanguageOrFallback(
+        _ language: String?,
+        availableLanguages: [String: String]
+    ) -> String {
+        guard let language, availableLanguages[language] != nil else {
             return followKeyboardCode
         }
         return language
@@ -39,7 +65,7 @@ enum KeyboardLanguagePolicy {
         configuredLanguage: String?,
         for model: any TranscriptionModel
     ) -> [String] {
-        let validated = validLanguageOrFallback(configuredLanguage)
+        let validated = validLanguageOrFallback(configuredLanguage, for: model)
         guard applies(to: model), validated == followKeyboardCode else {
             return [validated]
         }
@@ -47,11 +73,12 @@ enum KeyboardLanguagePolicy {
         let supported = allowedLanguages(for: model)
         guard !supported.isEmpty else { return [fallbackLanguage(in: supported)] }
 
-        return orderedLanguages(
+        let candidates = orderedLanguages(
             active: currentInputSource(),
             enabled: enabledInputSources(),
             supported: supported
         )
+        return candidates.isEmpty ? [fallbackLanguage(in: supported)] : candidates
     }
 
     static func orderedLanguages(
@@ -72,7 +99,6 @@ enum KeyboardLanguagePolicy {
         for source in enabled {
             append(language(for: source, supported: supported))
         }
-        append(fallbackLanguage(in: supported))
         return candidates
     }
 
@@ -110,21 +136,19 @@ enum KeyboardLanguagePolicy {
             .map { String($0).lowercased() }
     }
 
-    @MainActor
     static func twoLetterDisplayCode(for language: String?) -> String {
-        let resolvedLanguage = language ?? currentKeyboardLanguage()
-        return primaryLanguageSubtag(resolvedLanguage)?.uppercased() ?? "--"
-    }
-
-    @MainActor
-    static func currentKeyboardLanguage() -> String {
-        let supported = explicitLanguages
-        return currentInputSource().flatMap { language(for: $0, supported: supported) }
-            ?? fallbackLanguage(in: supported)
+        primaryLanguageSubtag(language ?? "")?.uppercased() ?? "--"
     }
 
     private static func allowedLanguages(for model: any TranscriptionModel) -> Set<String> {
-        Set(model.supportedLanguages.keys).intersection(explicitLanguages)
+        supportedLanguageCodes(from: model.supportedLanguages)
+    }
+
+    private static func supportedLanguageCodes(from languages: [String: String]) -> Set<String> {
+        Set(languages.keys.filter {
+            let primary = primaryLanguageSubtag($0)
+            return primary != nil && primary != "auto"
+        })
     }
 
     private static func fallbackLanguage(in supported: Set<String>) -> String {
@@ -133,6 +157,14 @@ enum KeyboardLanguagePolicy {
 
     private static func canonicalLanguageIdentifier(_ identifier: String) -> String {
         Locale.canonicalLanguageIdentifier(from: identifier.replacingOccurrences(of: "_", with: "-"))
+    }
+
+    private static func localizedDisplayName(for identifier: String) -> String? {
+        let canonical = canonicalLanguageIdentifier(identifier)
+        return Locale.current.localizedString(forIdentifier: canonical)
+            ?? primaryLanguageSubtag(canonical).flatMap {
+                Locale.current.localizedString(forLanguageCode: $0)
+            }
     }
 
     /// macOS metadata is authoritative. This generic name fallback compares the
@@ -156,13 +188,11 @@ enum KeyboardLanguagePolicy {
         return nil
     }
 
-    @MainActor
     private static func currentInputSource() -> InputSourceLanguageInfo? {
         guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return nil }
         return inputSourceInfo(source)
     }
 
-    @MainActor
     private static func enabledInputSources() -> [InputSourceLanguageInfo] {
         guard let sourceList = TISCreateInputSourceList(nil, false)?.takeRetainedValue() else { return [] }
         let sources = sourceList as NSArray

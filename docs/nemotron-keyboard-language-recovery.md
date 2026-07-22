@@ -22,10 +22,10 @@ for the recovery feature rather than new model backends:
 
 - Nemotron runs through FluidAudio/Core ML as VoiceInk's multilingual local
   model; VoiceInk does not share Handy's GGUF model files.
-- The language picker exposes **Follow Keyboard**, English, German, and
-  Bulgarian. That product allowlist is intentionally separate from the generic
-  BCP-47 matching algorithm, so other builds can supply other supported locales
-  without adding identifier-specific code.
+- The language picker exposes **Follow Keyboard** plus the languages represented
+  by the user's enabled macOS keyboards that the selected Nemotron model also
+  supports. It contains no fixed language allowlist; BCP-47 matching and display
+  names are derived dynamically.
 - The recorder status window shows the frozen language beside its left-hand
   icon as a two-letter code. Its audio-level dots continue to reflect microphone
   amplitude only while recording.
@@ -47,7 +47,7 @@ for the recovery feature rather than new model backends:
   metadata.
 - [x] At recording start, freeze the active keyboard language followed by the
   other enabled keyboard languages, de-duplicated by primary language and
-  intersected with the model/build allowlist. Explicit language selections
+  intersected with the model's supported languages. Explicit language selections
   remain single-language and do not retry.
 - [x] Validate Nemotron output with Apple's offline Natural Language framework.
   Reject a confident whole-result mismatch or a confident two-word span in a

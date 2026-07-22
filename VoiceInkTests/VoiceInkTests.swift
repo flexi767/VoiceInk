@@ -46,10 +46,32 @@ struct VoiceInkTests {
         )
     }
 
-    @Test func rejectsUnsupportedPersistedSelections() {
-        #expect(KeyboardLanguagePolicy.validLanguageOrFallback("fr-FR") == "keyboard")
-        #expect(KeyboardLanguagePolicy.validLanguageOrFallback("auto") == "keyboard")
-        #expect(KeyboardLanguagePolicy.validLanguageOrFallback("de-DE") == "de-DE")
+    @Test func selectorUsesOnlyInstalledModelSupportedKeyboardLanguages() {
+        let active = KeyboardLanguagePolicy.InputSourceLanguageInfo(languages: ["fr-FR"], localizedName: nil)
+        let enabled = [
+            KeyboardLanguagePolicy.InputSourceLanguageInfo(languages: ["sr-Latn"], localizedName: nil),
+            KeyboardLanguagePolicy.InputSourceLanguageInfo(languages: ["zh-Hant"], localizedName: nil),
+            KeyboardLanguagePolicy.InputSourceLanguageInfo(languages: ["es-ES"], localizedName: nil),
+        ]
+        let selectable = KeyboardLanguagePolicy.selectableLanguages(
+            active: active,
+            enabled: enabled,
+            supportedLanguages: [
+                "auto": "Auto-detect",
+                "en-US": "English",
+                "fr-FR": "French",
+                "sr-Latn": "Serbian (Latin)",
+                "zh-Hant": "Traditional Chinese",
+            ]
+        )
+
+        #expect(Set(selectable.keys) == ["keyboard", "fr-FR", "sr-Latn", "zh-Hant"])
+        #expect(selectable["en-US"] == nil)
+        #expect(selectable["es-ES"] == nil)
+        #expect(KeyboardLanguagePolicy.validLanguageOrFallback(
+            "sr-Latn", availableLanguages: selectable) == "sr-Latn")
+        #expect(KeyboardLanguagePolicy.validLanguageOrFallback(
+            "en-US", availableLanguages: selectable) == "keyboard")
     }
 
     @Test @MainActor func formatsGenericTwoLetterDisplayCodes() {

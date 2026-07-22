@@ -3,7 +3,7 @@ import Foundation
 enum TranscriptionLanguageSupport {
     static func languages(for model: any TranscriptionModel, realtimeEnabled: Bool? = nil) -> [String: String] {
         if KeyboardLanguagePolicy.applies(to: model) {
-            return KeyboardLanguagePolicy.selectableLanguages
+            return KeyboardLanguagePolicy.selectableLanguages(for: model)
         }
         return model.supportedLanguages
     }
@@ -12,7 +12,7 @@ enum TranscriptionLanguageSupport {
         _ language: String?, for model: any TranscriptionModel, realtimeEnabled: Bool? = nil
     ) -> String {
         if KeyboardLanguagePolicy.applies(to: model) {
-            return KeyboardLanguagePolicy.validLanguageOrFallback(language)
+            return KeyboardLanguagePolicy.validLanguageOrFallback(language, for: model)
         }
 
         let languages = languages(for: model, realtimeEnabled: realtimeEnabled)

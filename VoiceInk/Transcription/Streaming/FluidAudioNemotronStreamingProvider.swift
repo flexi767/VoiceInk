@@ -29,10 +29,11 @@ final class FluidAudioNemotronStreamingProvider: StreamingTranscriptionProvider 
             continuation?.yield(.partial(text: partial))
         }
         try await manager.loadModels(from: cacheDirectory)
-        let compatibleLanguage = TranscriptionLanguageSupport.validLanguageOrFallback(
-            language,
-            for: model
-        )
+        // `language` is the recording-start snapshot and must not change when
+        // the user switches keyboards during dictation.
+        let compatibleLanguage = KeyboardLanguagePolicy.applies(to: model)
+            ? language
+            : TranscriptionLanguageSupport.validLanguageOrFallback(language, for: model)
         let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: compatibleLanguage)
         await manager.setLanguage(languageHint)
         await manager.setForcedPrefix(KeyboardLanguagePolicy.applies(to: model))

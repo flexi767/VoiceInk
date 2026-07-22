@@ -155,10 +155,11 @@ class FluidAudioTranscriptionService: TranscriptionService {
                 throw ASRError.notInitialized
             }
 
-            let compatibleLanguage = TranscriptionLanguageSupport.validLanguageOrFallback(
-                context.language,
-                for: model
-            )
+            // Nemotron receives a language frozen at recording start. Do not
+            // consult the live keyboard list again while streaming or retrying.
+            let compatibleLanguage = KeyboardLanguagePolicy.applies(to: model)
+                ? context.language
+                : TranscriptionLanguageSupport.validLanguageOrFallback(context.language, for: model)
             let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: compatibleLanguage)
             await nemotronAsrManager.setLanguage(languageHint)
             await nemotronAsrManager.setForcedPrefix(KeyboardLanguagePolicy.applies(to: model))

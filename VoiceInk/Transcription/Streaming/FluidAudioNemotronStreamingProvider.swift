@@ -33,13 +33,7 @@ final class FluidAudioNemotronStreamingProvider: StreamingTranscriptionProvider 
             language,
             for: model
         )
-        let resolvedLanguage: String
-        if KeyboardLanguagePolicy.applies(to: model) {
-            resolvedLanguage = await KeyboardLanguagePolicy.resolvedLanguage(compatibleLanguage)
-        } else {
-            resolvedLanguage = compatibleLanguage
-        }
-        let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: resolvedLanguage)
+        let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: compatibleLanguage)
         await manager.setLanguage(languageHint)
         await manager.setForcedPrefix(KeyboardLanguagePolicy.applies(to: model))
 

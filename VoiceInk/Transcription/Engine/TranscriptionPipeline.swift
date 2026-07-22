@@ -112,6 +112,42 @@ class TranscriptionPipeline {
                 )
             }
             text = TranscriptionOutputFilter.filter(text)
+            if KeyboardLanguagePolicy.applies(to: model),
+                transcriptionConfiguration.languageCandidates.count > 1
+            {
+                let primaryText = text
+                text = await TranscriptLanguageRecovery.selectTranscript(
+                    primary: primaryText,
+                    candidates: transcriptionConfiguration.languageCandidates
+                ) { language in
+                    if shouldCancel() { throw CancellationError() }
+                    self.logger.notice(
+                        "Retrying retained audio with forced Nemotron language \(language, privacy: .public)"
+                    )
+                    do {
+                        return try await self.serviceRegistry.transcribe(
+                            audioURL: audioURL,
+                            model: model,
+                            context: TranscriptionRequestContext(language: language, prompt: nil)
+                        )
+                    } catch {
+                        self.logger.error(
+                            "Forced Nemotron retry failed for \(language, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                        )
+                        throw error
+                    }
+                }
+
+                if text != primaryText {
+                    logger.notice("Wrong-keyboard language recovery selected a validated retained-audio retry")
+                } else if !TranscriptLanguageValidator.accepts(
+                    primaryText,
+                    expectedLanguage: transcriptionConfiguration.language,
+                    candidates: transcriptionConfiguration.languageCandidates
+                ) {
+                    logger.warning("No validated language retry succeeded; preserving the primary transcript")
+                }
+            }
             let transcriptionDuration = Date().timeIntervalSince(transcriptionStart)
 
             if shouldCancel() {

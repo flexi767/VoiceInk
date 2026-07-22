@@ -4,6 +4,7 @@ struct TranscriptionRuntimeConfiguration {
     let mode: ModeConfig?
     let model: any TranscriptionModel
     let language: String
+    let languageCandidates: [String]
     let isRealtimeEnabled: Bool
 
     var metadata: (name: String?, emoji: String?) {
@@ -76,15 +77,17 @@ enum ModeRuntimeResolver {
             for: model,
             realtimeEnabled: mode?.isRealtimeTranscriptionEnabled
         )
-        let language = KeyboardLanguagePolicy.requestLanguage(
+        let languageCandidates = KeyboardLanguagePolicy.recordingLanguages(
             configuredLanguage: configuredLanguage,
             for: model
         )
+        let language = languageCandidates.first ?? configuredLanguage
 
         return TranscriptionRuntimeConfiguration(
             mode: mode,
             model: model,
             language: language,
+            languageCandidates: languageCandidates,
             isRealtimeEnabled: TranscriptionRealtimeSupport.isEnabled(
                 for: model, modeValue: mode?.isRealtimeTranscriptionEnabled)
         )

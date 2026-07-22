@@ -66,6 +66,8 @@ struct VoiceInkTests {
         )
 
         #expect(Set(selectable.keys) == ["keyboard", "fr-FR", "sr-Latn", "zh-Hant"])
+        #expect(selectable["keyboard"] == KeyboardLanguagePolicy.installedKeyboardLanguagesLabel)
+        #expect(KeyboardLanguagePolicy.installedKeyboardLanguagesLabel == "Use only installed keyboard languages")
         #expect(selectable["en-US"] == nil)
         #expect(selectable["es-ES"] == nil)
         #expect(KeyboardLanguagePolicy.validLanguageOrFallback(

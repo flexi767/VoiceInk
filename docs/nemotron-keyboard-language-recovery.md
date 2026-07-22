@@ -4,7 +4,7 @@
 
 ## Goal
 
-When **Follow Keyboard** is selected, VoiceInk should prefer the language of
+When **Use only installed keyboard languages** is selected, VoiceInk should prefer the language of
 the keyboard that was active when recording began. If the user speaks another
 language represented by one of their other enabled keyboards, VoiceInk should
 retry the retained recording instead of returning a clearly wrong-language
@@ -22,7 +22,7 @@ for the recovery feature rather than new model backends:
 
 - Nemotron runs through FluidAudio/Core ML as VoiceInk's multilingual local
   model; VoiceInk does not share Handy's GGUF model files.
-- The language picker exposes **Follow Keyboard** plus the languages represented
+- The language picker exposes **Use only installed keyboard languages** plus the languages represented
   by the user's enabled macOS keyboards that the selected Nemotron model also
   supports. It contains no fixed language allowlist; BCP-47 matching and display
   names are derived dynamically.

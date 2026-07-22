@@ -4,6 +4,7 @@ import Foundation
 /// Keyboard-conditioned language routing for this build's Nemotron workflow.
 enum KeyboardLanguagePolicy {
     static let followKeyboardCode = "keyboard"
+    static let installedKeyboardLanguagesLabel = String(localized: "Use only installed keyboard languages")
     static let nemotronModelName = "nemotron-multilingual-0.6b"
 
     struct InputSourceLanguageInfo {
@@ -30,7 +31,7 @@ enum KeyboardLanguagePolicy {
     ) -> [String: String] {
         let supported = supportedLanguageCodes(from: supportedLanguages)
         let installed = orderedLanguages(active: active, enabled: enabled, supported: supported)
-        var result = [followKeyboardCode: "Follow Keyboard"]
+        var result = [followKeyboardCode: installedKeyboardLanguagesLabel]
         for identifier in installed {
             result[identifier] = supportedLanguages[identifier]
                 ?? localizedDisplayName(for: identifier)
@@ -58,7 +59,7 @@ enum KeyboardLanguagePolicy {
     }
 
     /// Freezes the ordered language candidates while the recording configuration
-    /// is created. Explicit selections stay single-language; Follow Keyboard
+    /// is created. Explicit selections stay single-language; keyboard routing
     /// starts with the active source and then includes enabled supported sources.
     @MainActor
     static func recordingLanguages(

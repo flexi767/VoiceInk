@@ -6,6 +6,11 @@ enum TranscriptLanguageValidator {
     private static let confidentMismatchThreshold = 0.90
     private static let outsideCandidateThreshold = 0.85
 
+    /// Sentinel used by detection-capable models (Whisper) that auto-detect instead of
+    /// being handed a language. It is an instruction, not a spoken language, so it never
+    /// belongs in the candidate set and carries no expectation to compare against.
+    static let autoDetectCode = "auto"
+
     static func accepts(_ rawText: String, expectedLanguage: String, candidates: [String]) -> Bool {
         let words = words(in: rawText)
         guard !words.isEmpty,
@@ -13,6 +18,7 @@ enum TranscriptLanguageValidator {
         else { return false }
 
         let candidateBases = Set(candidates.compactMap(KeyboardLanguagePolicy.primaryLanguageSubtag))
+            .subtracting([autoDetectCode])
         guard !candidateBases.isEmpty else { return true }
 
         let wholeHypotheses = hypotheses(for: words.joined(separator: " "), maximum: 5)
@@ -28,7 +34,10 @@ enum TranscriptLanguageValidator {
         }
 
         if outsideProbability >= outsideCandidateThreshold { return false }
-        if let strongest = wholeHypotheses.first,
+        // An auto-detecting primary was never told what to emit, so there is no expected
+        // language to contradict — only the outside-candidate evidence above applies.
+        if expected != autoDetectCode,
+            let strongest = wholeHypotheses.first,
             strongest.confidence >= confidentMismatchThreshold,
             strongest.language != expected
         {
@@ -159,11 +168,20 @@ enum TranscriptLanguageValidator {
     /// Orders candidates so those whose expected script is absent from the primary
     /// come first — the most likely missed language is retried before re-confirming
     /// the script the primary already produced.
+    /// English is always retried last: forcing `en` yields fluent English that passes
+    /// validation for almost any audio, so trying it early would mask a correct result
+    /// from another candidate.
+    static func isEnglish(_ code: String) -> Bool {
+        KeyboardLanguagePolicy.primaryLanguageSubtag(code) == "en"
+    }
+
     static func scriptPreferredOrder(_ candidates: [String], primary: String) -> [String] {
         let mismatched = Set(scriptMismatchedCandidates(candidates, primary: primary))
         return candidates.enumerated().sorted { lhs, rhs in
+            let lEn = isEnglish(lhs.element), rEn = isEnglish(rhs.element)
+            if lEn != rEn { return rEn }    // English always last
             let l = mismatched.contains(lhs.element), r = mismatched.contains(rhs.element)
-            if l != r { return l }          // script-mismatched candidates first
+            if l != r { return l }          // then script-mismatched candidates first
             return lhs.offset < rhs.offset  // otherwise keep original order (stable)
         }.map { $0.element }
     }

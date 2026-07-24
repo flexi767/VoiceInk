@@ -4,6 +4,9 @@ import Foundation
 /// Keyboard-conditioned language routing for this build's Nemotron workflow.
 enum KeyboardLanguagePolicy {
     static let followKeyboardCode = "keyboard"
+    /// Language sentinel meaning "let the model detect it" (Whisper and other
+    /// detection-capable models). Never a spoken language.
+    static let autoDetectCode = "auto"
     static let installedKeyboardLanguagesLabel = String(localized: "Use only installed keyboard languages")
     static let nemotronModelName = "nemotron-multilingual-0.6b"
 
@@ -66,8 +69,31 @@ enum KeyboardLanguagePolicy {
         configuredLanguage: String?,
         for model: any TranscriptionModel
     ) -> [String] {
+        // Only Nemotron routes language through installed keyboards. For every other
+        // model the configured language is already validated against that model's own
+        // dictionary (which includes "auto"), so it must pass through untouched —
+        // validating it here would coerce a valid "auto" into the literal
+        // "keyboard" sentinel and hand whisper.cpp an unknown language code.
+        guard applies(to: model) else {
+            guard let configuredLanguage else { return [] }
+            // A detection-capable model stays on auto for the primary pass: forcing a
+            // language it is not hearing makes the decoder *translate* into that
+            // language. The installed keyboard languages follow as recovery candidates
+            // so a misdetection (e.g. Bulgarian read as Russian) can be re-run forced.
+            guard configuredLanguage == autoDetectCode else { return [configuredLanguage] }
+
+            let supported = allowedLanguages(for: model)
+            guard !supported.isEmpty else { return [configuredLanguage] }
+            let keyboardLanguages = orderedLanguages(
+                active: currentInputSource(),
+                enabled: enabledInputSources(),
+                supported: supported
+            )
+            return [configuredLanguage] + keyboardLanguages
+        }
+
         let validated = validLanguageOrFallback(configuredLanguage, for: model)
-        guard applies(to: model), validated == followKeyboardCode else {
+        guard validated == followKeyboardCode else {
             return [validated]
         }
 

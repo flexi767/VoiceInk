@@ -28,6 +28,16 @@ class TranscriptionPipeline {
     private let delivery = TranscriptionDelivery()
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "TranscriptionPipeline")
 
+    /// Below this clip length, a detection-capable model on auto-detect is instead forced
+    /// to the active keyboard's language. Whisper language ID is unreliable on brief
+    /// utterances (it flips en/bg/ru), while forcing a language is reliable — and the
+    /// active keyboard is the user's own signal for what they are speaking. Longer clips
+    /// give auto-detect enough signal, so they keep auto. Tunable via "ShortClipLanguageLockSeconds".
+    private var shortClipLanguageLockSeconds: Double {
+        let stored = UserDefaults.standard.double(forKey: "ShortClipLanguageLockSeconds")
+        return stored > 0 ? stored : 5.0
+    }
+
     init(
         modelContext: ModelContext,
         serviceRegistry: TranscriptionServiceRegistry,
@@ -105,16 +115,34 @@ class TranscriptionPipeline {
             if let session {
                 text = try await session.transcribe(audioURL: audioURL)
             } else {
+                var primaryContext = transcriptionConfiguration.requestContext
+                // Short-clip language lock: auto-detect is unreliable on brief utterances,
+                // so for a short clip on a detection-capable model force the active
+                // keyboard's language (the first non-auto candidate). Long clips keep auto.
+                if primaryContext.language == KeyboardLanguagePolicy.autoDetectCode,
+                    let keyboardLanguage = transcriptionConfiguration.languageCandidates
+                        .first(where: { $0 != KeyboardLanguagePolicy.autoDetectCode })
+                {
+                    let clipSeconds = await AudioFileMetadata.duration(for: audioURL)
+                    if clipSeconds > 0, clipSeconds < shortClipLanguageLockSeconds {
+                        primaryContext = TranscriptionRequestContext(
+                            language: keyboardLanguage, prompt: primaryContext.prompt)
+                        logger.notice(
+                            "Short clip \(clipSeconds, privacy: .public)s: forcing keyboard language \(keyboardLanguage, privacy: .public) over auto-detect"
+                        )
+                    }
+                }
                 text = try await serviceRegistry.transcribe(
                     audioURL: audioURL,
                     model: model,
-                    context: transcriptionConfiguration.requestContext
+                    context: primaryContext
                 )
             }
             text = TranscriptionOutputFilter.filter(text)
-            if KeyboardLanguagePolicy.applies(to: model),
-                transcriptionConfiguration.languageCandidates.count > 1
-            {
+            // Recovery is no longer Nemotron-only: a detection-capable model can also
+            // land outside the user's languages (Bulgarian misdetected as Russian), and
+            // `recordingLanguages` only reports >1 candidate when recovery is meaningful.
+            if transcriptionConfiguration.languageCandidates.count > 1 {
                 let primaryText = text
                 text = await TranscriptLanguageRecovery.selectTranscript(
                     primary: primaryText,

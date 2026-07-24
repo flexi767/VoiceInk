@@ -24,6 +24,12 @@ class TranscriptionServiceRegistry {
         self.modelContext = modelContext
     }
 
+    /// Language whisper auto-detected on the most recent whisper transcription (base
+    /// code), or nil if the last pass forced a language or used a different provider.
+    var lastWhisperDetectedLanguage: String? {
+        localTranscriptionService.lastDetectedLanguage
+    }
+
     func service(for provider: ModelProvider) -> TranscriptionService {
         switch provider {
         case .whisper:

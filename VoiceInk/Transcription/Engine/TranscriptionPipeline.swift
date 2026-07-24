@@ -112,6 +112,7 @@ class TranscriptionPipeline {
         do {
             let transcriptionStart = Date()
             var text: String
+            var whisperDetectedLanguage: String?
             if let session {
                 text = try await session.transcribe(audioURL: audioURL)
             } else {
@@ -137,6 +138,9 @@ class TranscriptionPipeline {
                     model: model,
                     context: primaryContext
                 )
+                // Whisper's own detected language (nil unless it ran on auto-detect) — the
+                // recovery uses it to catch a wrong-language decode that text inference misses.
+                whisperDetectedLanguage = serviceRegistry.lastWhisperDetectedLanguage
             }
             text = TranscriptionOutputFilter.filter(text)
             // Recovery is no longer Nemotron-only: a detection-capable model can also
@@ -146,7 +150,8 @@ class TranscriptionPipeline {
                 let primaryText = text
                 text = await TranscriptLanguageRecovery.selectTranscript(
                     primary: primaryText,
-                    candidates: transcriptionConfiguration.languageCandidates
+                    candidates: transcriptionConfiguration.languageCandidates,
+                    detectedLanguage: whisperDetectedLanguage
                 ) { language in
                     if shouldCancel() { throw CancellationError() }
                     self.logger.notice(

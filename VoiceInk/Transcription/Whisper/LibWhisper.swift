@@ -15,6 +15,12 @@ actor WhisperContext {
     private var prompt: String?
     private var promptCString: [CChar]?
     private var vadModelPath: String?
+    /// The language whisper auto-detected on the last `fullTranscribe`, as a base code
+    /// ("en", "bg", …). Set only when transcription ran on auto-detect (no forced
+    /// language); nil otherwise. Lets recovery trust whisper's own detection instead of
+    /// re-inferring language from the output text (which cannot tell Bulgarian read as
+    /// Russian apart — both are Cyrillic).
+    private(set) var detectedLanguageCode: String?
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "WhisperContext")
 
     private init() {}
@@ -31,6 +37,7 @@ actor WhisperContext {
 
     func fullTranscribe(samples: [Float]) -> Bool {
         guard let context = context else { return false }
+        detectedLanguageCode = nil
 
         let maxThreads = max(1, min(8, cpuCount() - 2))
         var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
@@ -92,6 +99,16 @@ actor WhisperContext {
             if whisper_full(context, params, samplesBuffer.baseAddress, Int32(samplesBuffer.count)) != 0 {
                 logger.error("❌ Failed to run whisper_full. VAD enabled: \(params.vad, privacy: .public)")
                 success = false
+            }
+        }
+
+        // Record what whisper auto-detected, but only when we actually let it detect
+        // (params.language == nil for "auto"). On a forced-language pass the id just
+        // echoes the forced language and carries no recovery signal.
+        if success, selectedLanguage == "auto" {
+            let langId = whisper_full_lang_id(context)
+            if langId >= 0, let cLang = whisper_lang_str(langId) {
+                detectedLanguageCode = String(cString: cLang)
             }
         }
 

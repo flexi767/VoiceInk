@@ -5,6 +5,10 @@ import os
 class WhisperTranscriptionService: TranscriptionService {
 
     private var whisperContext: WhisperContext?
+    /// Language whisper auto-detected on the most recent transcription (base code), or nil
+    /// if the pass used a forced language. Read by the pipeline to gate wrong-language
+    /// recovery on whisper's own detection rather than text inference.
+    private(set) var lastDetectedLanguage: String?
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "WhisperTranscriptionService")
     private let modelsDirectory: URL
     private weak var modelProvider: (any WhisperModelProvider)?
@@ -70,6 +74,7 @@ class WhisperTranscriptionService: TranscriptionService {
         }
 
         let text = await whisperContext.getTranscription()
+        lastDetectedLanguage = await whisperContext.detectedLanguageCode
 
         logger.notice("Whisper transcription completed successfully.")
 

@@ -193,6 +193,7 @@ enum TranscriptLanguageRecovery {
     static func selectTranscript(
         primary rawPrimary: String,
         candidates: [String],
+        detectedLanguage: String? = nil,
         retry: (String) async throws -> String
     ) async -> String {
         let primary = TranscriptionOutputFilter.filter(rawPrimary)
@@ -205,8 +206,20 @@ enum TranscriptLanguageRecovery {
         // when a candidate expects a script the primary never produced.
         let scriptSuspect = TranscriptLanguageValidator.scriptMismatchSuspected(
             primary, candidates: candidates)
+        // Ground truth from a detection-capable model: if it auto-detected a language the
+        // user does not have as a candidate (Bulgarian read as Russian/Icelandic), the
+        // text validator cannot be trusted — force recovery. This catches wrong-language
+        // decodes that stay inside the same script and would otherwise be accepted.
+        let detectedOutsideCandidates: Bool = {
+            guard let detectedBase = detectedLanguage.flatMap(KeyboardLanguagePolicy.primaryLanguageSubtag),
+                detectedBase != KeyboardLanguagePolicy.autoDetectCode
+            else { return false }
+            let candidateBases = Set(candidates.compactMap(KeyboardLanguagePolicy.primaryLanguageSubtag))
+                .subtracting([KeyboardLanguagePolicy.autoDetectCode])
+            return !candidateBases.isEmpty && !candidateBases.contains(detectedBase)
+        }()
 
-        if accepted && !scriptSuspect {
+        if accepted && !scriptSuspect && !detectedOutsideCandidates {
             return primary
         }
 

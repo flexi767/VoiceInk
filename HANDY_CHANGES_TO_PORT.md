@@ -41,13 +41,19 @@ languages they are speaking, without manually switching the app's language.
 **VoiceInk porting notes.**
 - Read the layout with Carbon TIS: `TISCopyCurrentKeyboardInputSource()` +
   `TISGetInputSourceProperty(_, kTISPropertyInputSourceLanguages)`.
-- **Main-thread caveat (this cost Handy three commits):** the *enumeration*
-  `TISCreateInputSourceList` asserts the main dispatch queue and **aborts** the
-  process if called off it. The single *current-source* lookup does **not**
-  enumerate and is safe anywhere. VoiceInk transcription runs in async tasks, so
-  wrap any `TISCreateInputSourceList` call in `DispatchQueue.main.sync { }` (or
-  cache the enabled list on the main thread at record start). Reading only the
-  current source needs no hop.
+- **Main-thread caveat (this cost Handy four commits):** treat **every** Text
+  Input Source call as main-queue-only on modern macOS. `TISCreateInputSourceList`
+  has always asserted the main dispatch queue and **aborts** the process off it.
+  As of **macOS 26**, `TISGetInputSourceProperty` does too — it validates the
+  source ref via `isValidateInputSourceRef` → `islGetInputSourceListWithAdditions`,
+  which asserts the main queue *even for the current source*. Worse, it is
+  **timing-dependent**: the assert only fires while the input-source list cache is
+  cold (just after login), so an off-main read can run fine for a whole session
+  and then crash on the next boot. Do **not** assume "just reading the current
+  source" is safe off-main. VoiceInk transcription runs in async tasks, so wrap
+  *all* TIS access — `TISCopyCurrentKeyboardInputSource` + property reads included,
+  not only `TISCreateInputSourceList` — in `DispatchQueue.main.sync { }` (or read
+  everything once on the main thread at record start and pass the values down).
 - Resolve at record start and pass the result as `TranscriptionRequestContext.language`.
 
 ---

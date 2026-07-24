@@ -101,10 +101,13 @@ These were applied to the installed app's settings, separate from code:
 
 1. **Forcing a language Whisper is not hearing makes it translate**, not mislabel. Leave
    detection-capable models on `auto` + recover afterwards.
-2. **Nemotron drops the first word** on some clips — it's a *realtime streaming* artifact, not
-   audio clipping (recordings have ~500 ms leading silence; offline Whisper reads the word from
-   the same file). Older code has *less* streaming-finalization protection, so going back makes
-   it worse, not better.
+2. **First-word drop was OUR regression, not the audio path.** ~~It's a realtime streaming
+   artifact; Parakeet V3 (non-streaming) also drops it, so it's the FluidAudio path.~~
+   **CORRECTED 2026-07-24:** the clean `69ed170` 2.0 base running **Parakeet V3 + `auto` +
+   built-in mic** keeps the first word on every clip. Same model, same FluidAudio path — so the
+   drop was introduced by the experimental stack (keyboard-routing / recovery / short-clip lock,
+   and/or the forced-language + realtime experiments), not by FluidAudio or by "old code." Going
+   back to pristine 2.0 *fixed* it. Do not re-blame the base for this.
 3. **Short/fast Bulgarian garbles even offline** (detected as Arabic/Icelandic) — the model
    genuinely lacks signal; no routing logic fixes it. Mic level and enunciation/length matter most.
 4. **Microphone level was a real culprit** — the MacBook mic recorded ~20 dB too quiet; the

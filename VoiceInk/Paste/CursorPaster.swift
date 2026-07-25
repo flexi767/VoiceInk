@@ -47,7 +47,7 @@ class CursorPaster {
     private static func performPasteSession(_ text: String) async -> PasteResult {
         let pasteboard = NSPasteboard.general
         let shouldRestoreClipboard = UserDefaults.standard.bool(forKey: "restoreClipboardAfterPaste")
-        let savedContents = shouldRestoreClipboard ? snapshotClipboard(from: pasteboard) : []
+        let savedContents = shouldRestoreClipboard ? snapshotUserClipboard(from: pasteboard) : []
         let sessionID = UUID().uuidString
 
         guard
@@ -74,6 +74,33 @@ class CursorPaster {
         }
 
         return pasteResult
+    }
+
+    /// The last clipboard that actually belonged to the user, as opposed to one
+    /// of our own paste sessions.
+    @MainActor private static var lastUserClipboard: ClipboardSnapshot = []
+
+    /// Snapshot of the user's clipboard, skipping a pasteboard VoiceInk still owns.
+    ///
+    /// Two dictations closer together than the restore delay would otherwise
+    /// lose the clipboard permanently: the second session snapshots while the
+    /// first transcript is still on the pasteboard, the first session's restore
+    /// then correctly declines (the pasteboard is no longer its own), and the
+    /// second faithfully restores *the first transcript*. The user's real
+    /// clipboard is never written back by anyone.
+    ///
+    /// Recognising our own session marker and carrying the earlier snapshot
+    /// forward makes the restore survive any number of back-to-back dictations.
+    @MainActor
+    private static func snapshotUserClipboard(from pasteboard: NSPasteboard) -> ClipboardSnapshot {
+        guard pasteboard.string(forType: ClipboardManager.pasteSessionType) == nil else {
+            logger.notice("Clipboard still holds a VoiceInk paste session; keeping the earlier snapshot")
+            return lastUserClipboard
+        }
+
+        let snapshot = snapshotClipboard(from: pasteboard)
+        lastUserClipboard = snapshot
+        return snapshot
     }
 
     private static func snapshotClipboard(from pasteboard: NSPasteboard) -> ClipboardSnapshot {
@@ -111,11 +138,21 @@ class CursorPaster {
             await wait(delay)
             guard pasteboardStillOwnedByPasteSession(pasteboard, expectedText: expectedText, sessionID: sessionID)
             else {
+                // Expected when the user copies something during the delay —
+                // their new clipboard wins. Logged because this is also the
+                // shape of every "it forgot to restore my clipboard" report,
+                // and there is otherwise no way to tell the two apart.
+                logger.notice("Clipboard changed during the restore delay; leaving it alone")
                 return
             }
             pasteboard.clearContents()
             if !savedContents.isEmpty {
                 pasteboard.writeObjects(pasteboardItems(from: savedContents))
+                logger.notice(
+                    "Restored the clipboard (\(savedContents.count, privacy: .public) item(s)) after \(delay, privacy: .public)s"
+                )
+            } else {
+                logger.notice("Clipboard was empty before pasting; cleared it back")
             }
         }
     }

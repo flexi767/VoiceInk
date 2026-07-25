@@ -103,6 +103,20 @@ Two refinements worth keeping:
 This is the single strongest argument for the keyboard option: with it the
 primary pass always carries a prompt id, so this class of failure cannot occur.
 
+On Auto-detect it is handled after the fact, with two rules specific to it:
+
+- **Probes run in keyboard order, active layout first.** The English-last rule
+  exists to stop fluent English masking a correct result; with an empty primary
+  there is no result to mask, and the active layout is the user's own signal.
+- **Validation cannot veto the recovery.** If nothing validates, the first
+  non-empty probe is kept anyway. The transcripts recovered here are exactly the
+  ones the validator is worst at — a one- or two-word utterance spreads its
+  probability so thinly that a correct result is rejected on noise ("Test test
+  test" reads as `fr 0.20 / it 0.18 / pl 0.14`, English nowhere in the top three)
+  — and handing the user nothing is strictly worse than an unconfirmed
+  transcription. The fallback is scoped to the empty case; a non-empty primary
+  is still only replaced by something that validates.
+
 ## 4. Only models whose language parameter is a real hint get the option.
 
 `KeyboardLanguagePolicy.supportsFollowKeyboard(for:)` gates on capability, not on

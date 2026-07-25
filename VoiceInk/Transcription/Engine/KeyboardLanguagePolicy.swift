@@ -91,8 +91,12 @@ enum KeyboardLanguagePolicy {
     // MARK: - Per-recording resolution
 
     /// Freezes the ordered languages for one recording. The first element is the
-    /// language the primary pass runs with; the rest are wrong-language recovery
-    /// candidates, in the order they should be retried.
+    /// language the primary pass runs with; the rest are recovery candidates, in
+    /// **keyboard order** — the active layout first, then the other enabled ones.
+    ///
+    /// Recovery reorders them for its own purposes, and needs the keyboard order
+    /// to do it: which reordering is right depends on why recovery fired, which
+    /// is not known here.
     ///
     /// Never returns `follow_keyboard`, and never returns an empty array.
     static func recordingLanguages(
@@ -116,17 +120,17 @@ enum KeyboardLanguagePolicy {
         if configured == followKeyboardCode {
             // No layout maps onto a supported language — fall back to detection
             // rather than inventing one.
-            guard let active = keyboard.first else {
+            guard !keyboard.isEmpty else {
                 return [supported[autoDetectCode] != nil ? autoDetectCode : configured]
             }
-            return [active] + recoveryOrder(Array(keyboard.dropFirst()))
+            return keyboard
         }
 
         // An explicit choice is honoured exactly, with no cross-language retry.
         guard configured == autoDetectCode else { return [configured] }
 
         // Rule 3: auto stays auto on the primary pass.
-        return [autoDetectCode] + recoveryOrder(keyboard)
+        return [autoDetectCode] + keyboard
     }
 
     /// Resolves a possibly-sentinel language into something a model can accept.
@@ -147,18 +151,6 @@ enum KeyboardLanguagePolicy {
         // first: this function's contract is that a model can accept the result.
         let usable = resolved == followKeyboardCode ? nil : resolved
         return TranscriptionLanguageSupport.validLanguageOrFallback(usable, for: model)
-    }
-
-    /// Recovery candidates with English last.
-    ///
-    /// Recovery keeps the first candidate that validates, and forcing English on
-    /// non-English audio yields fluent English — whisper's translation target —
-    /// which always validates and masks a correct result from another candidate.
-    /// English stays reachable for genuinely English clips, just not first.
-    static func recoveryOrder(_ languages: [String]) -> [String] {
-        let english = languages.filter { baseSubtag($0) == "en" }
-        let rest = languages.filter { baseSubtag($0) != "en" }
-        return rest + english
     }
 
     // MARK: - Keyboard layouts

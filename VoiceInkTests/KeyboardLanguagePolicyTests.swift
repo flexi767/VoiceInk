@@ -79,12 +79,16 @@ struct KeyboardLanguagePolicyTests {
 
     // MARK: - Recovery ordering
 
-    @Test func triesEnglishLast() {
-        // Forcing English on non-English audio yields fluent English that always
-        // validates, masking a correct result from another candidate.
-        #expect(Policy.recoveryOrder(["en-US", "bg-BG", "de-DE"]) == ["bg-BG", "de-DE", "en-US"])
-        #expect(Policy.recoveryOrder(["bg-BG"]) == ["bg-BG"])
-        #expect(Policy.recoveryOrder([]).isEmpty)
+    @Test func keepsCandidatesInKeyboardOrder() {
+        // Recovery reorders these for itself; which reordering is right depends
+        // on why recovery fired, so the policy must hand over the raw keyboard
+        // order rather than pre-sorting it.
+        let ordered = Policy.orderedLanguages(
+            active: Source(languages: ["en-US"], localizedName: "U.S."),
+            enabled: [Source(languages: ["bg"], localizedName: "Bulgarian")],
+            supported: ["en-US", "bg-BG"]
+        )
+        #expect(ordered == ["en-US", "bg-BG"])
     }
 
     // MARK: - Capability gating
@@ -314,6 +318,46 @@ struct TranscriptLanguageRecoveryTests {
         #expect(tried.count == 3)
         #expect(tried.last == "en-US")
         #expect(!result.isEmpty)
+    }
+
+    @Test func keepsRecoveredWordsOverAnEmptyPrimaryEvenIfTheyDoNotValidate() async {
+        // The transcripts recovered from an empty primary are exactly the ones
+        // the validator is worst at — one or two words, probability spread too
+        // thin to confirm. Rejecting them would hand the user nothing at all,
+        // which is strictly worse than an unconfirmed transcription.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "",
+            validationCandidates: ["en-US", "bg-BG"],
+            retryCandidates: ["bg-BG", "en-US"]
+        ) { _ in "これは日本語" }  // never validates for either candidate
+        #expect(result == "これは日本語")
+    }
+
+    @Test func probesAnEmptyPrimaryInKeyboardOrder() async {
+        // No result exists to be masked, so the English-last rule does not
+        // apply: the active layout is the best available guess and goes first.
+        var tried: [String] = []
+        _ = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "",
+            validationCandidates: ["en-US", "bg-BG"],
+            retryCandidates: ["en-US", "bg-BG"]
+        ) { language in
+            tried.append(language)
+            return ""
+        }
+        #expect(tried == ["en-US", "bg-BG"])
+    }
+
+    @Test func stillPrefersThePrimaryWhenItIsNotEmpty() async {
+        // The fallback is scoped to the empty case: a non-empty primary that no
+        // retry can improve on must survive untouched.
+        let primary = "これは日本語の文章です。今日はとてもいい天気ですね。"
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: primary,
+            validationCandidates: ["en-US", "bg-BG"],
+            retryCandidates: ["bg-BG"]
+        ) { _ in "これも日本語の文章です。まったく検証されません。" }
+        #expect(result == primary)
     }
 
     @Test func recoversAnEmptyPrimary() async {

@@ -230,9 +230,15 @@ enum TranscriptLanguageRecovery {
 
         guard !accepted || suspect else { return primary }
 
-        let ordered = retryOrder(retryCandidates, primary: primary)
+        // An empty primary is a different problem from a wrong-language one. On
+        // auto-detect the model returns nothing when a brief utterance gives it
+        // too little to identify the language — so the candidates are probed in
+        // keyboard order, active layout first, because that is the user's own
+        // signal. The English-last rule exists to stop fluent English masking a
+        // correct result, and there is no result here to mask.
+        let ordered = isEmpty ? retryCandidates : retryOrder(retryCandidates, primary: primary)
         logger.notice(
-            "Primary is \(accepted ? "a suspected transliteration" : "empty or outside the keyboard languages", privacy: .public); probing \(ordered.count, privacy: .public) candidate(s)"
+            "Primary is \(accepted ? "a suspected transliteration" : (isEmpty ? "empty" : "outside the keyboard languages"), privacy: .public); probing \(ordered.count, privacy: .public) candidate(s)"
         )
 
         // Every candidate is probed and the best-reading result wins, rather than
@@ -240,6 +246,9 @@ enum TranscriptLanguageRecovery {
         // inference is cheap, and "validates" is a much weaker bar than "reads
         // best", which is the whole point when the primary already looked fine.
         var best: (text: String, score: Double)?
+        /// First non-empty probe in order, validated or not. Insurance for the
+        /// empty-primary case — see the fallback below.
+        var anyText: String?
 
         for candidate in ordered {
             do {
@@ -249,6 +258,7 @@ enum TranscriptLanguageRecovery {
                     logger.notice("Forced \(candidate, privacy: .public) returned nothing")
                     continue
                 }
+                if anyText == nil { anyText = attempt }
                 // Validated against the single language it was forced to, not the
                 // whole set: a retry that drifted back to the wrong language must
                 // not pass just because some other keyboard would explain it.
@@ -271,6 +281,20 @@ enum TranscriptLanguageRecovery {
         }
 
         guard let best else {
+            // Validation decides which transcript is *preferred*, never whether
+            // we keep one at all. When the primary is empty there is nothing to
+            // protect, and an empty dictation is the worst outcome available —
+            // so any words beat no words.
+            //
+            // This matters because the transcripts recovered here are exactly
+            // the ones the validator is worst at: a one- or two-word utterance
+            // spreads its probability so thinly that a correct result can be
+            // rejected on noise ("Test test test" reads as fr 0.20 / it 0.18 /
+            // pl 0.14, with English nowhere in the top three).
+            if isEmpty, let anyText {
+                logger.notice("No probe validated, but the primary was empty; keeping the words")
+                return anyText
+            }
             logger.warning("No candidate validated; preserving the primary transcript")
             return primary
         }

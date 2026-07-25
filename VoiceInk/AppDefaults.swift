@@ -22,7 +22,12 @@ enum AppDefaults {
 
             // Clipboard
             "restoreClipboardAfterPaste": true,
-            "clipboardRestoreDelay": 2.0,
+            // Long enough for the target app to read the pasteboard after Cmd+V
+            // (normally a few milliseconds), short enough that dictating and
+            // then pressing Cmd+V yourself gets your own clipboard back rather
+            // than a second copy of the transcript. At 2s that reach for Cmd+V
+            // reliably pasted the transcript again.
+            "clipboardRestoreDelay": 0.5,
             "useAppleScriptPaste": false,
 
             // Audio & Media

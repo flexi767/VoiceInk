@@ -168,10 +168,16 @@ class FluidAudioTranscriptionService: TranscriptionService {
             await nemotronAsrManager.reset()
 
             var speechAudio = try loadAudioSamples(from: audioURL)
-            let trailingSilenceSamples = 16_000
+            let silenceSamples = 16_000
             let maxSingleChunkSamples = 240_000
-            if speechAudio.count + trailingSilenceSamples <= maxSingleChunkSamples {
-                speechAudio += [Float](repeating: 0, count: trailingSilenceSamples)
+            // Silence on both sides: the encoder needs left context before the
+            // opening words and right context after the closing ones, and a
+            // dictation supplies neither. Without the leading pad short clips
+            // decode to nothing; without the trailing pad the last word loses
+            // its ending.
+            speechAudio = [Float](repeating: 0, count: silenceSamples) + speechAudio
+            if speechAudio.count + silenceSamples <= maxSingleChunkSamples {
+                speechAudio += [Float](repeating: 0, count: silenceSamples)
             }
 
             _ = try await nemotronAsrManager.process(samples: speechAudio)

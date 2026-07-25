@@ -37,6 +37,17 @@ final class FluidAudioNemotronStreamingProvider: StreamingTranscriptionProvider 
         // why `setForcedPrefix` must stay off.
         await manager.setLanguage(languageHint)
 
+        // Prime the encoder's left-context cache with silence before any speech
+        // reaches it. `att_context_size` is [42, 13] — 42 frames of left context
+        // — and a dictation starts the instant the hotkey is pressed, so the
+        // opening words otherwise arrive with an empty cache. On 19 Bulgarian
+        // clips this took the non-empty rate from 9/19 to 13/19, with no clip
+        // that previously worked regressing. Costs one chunk of inference during
+        // connect, while the audio gate is still buffering.
+        _ = try? await manager.process(
+            samples: [Float](repeating: 0, count: Self.leadingSilenceSampleCount)
+        )
+
         self.manager = manager
         eventsContinuation?.yield(.sessionStarted)
         logger.notice("Nemotron streaming started for \(model.displayName, privacy: .public)")
@@ -52,6 +63,9 @@ final class FluidAudioNemotronStreamingProvider: StreamingTranscriptionProvider 
 
         _ = try await manager.process(samples: samples)
     }
+
+    /// One second of silence at 16 kHz, fed before the first real audio.
+    private static let leadingSilenceSampleCount = 16_000
 
     /// One second of silence at 16 kHz, fed before the final flush.
     ///

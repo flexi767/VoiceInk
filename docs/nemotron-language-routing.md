@@ -68,9 +68,25 @@ English, and translated.
 Cost of this choice, measured: auto-detect returned **empty on 3/30 clips** that
 a forced language transcribed correctly, and produced wrong-script output on
 another — "Put the text of the title next to the icon" came back as
-`Пототекс в Дитно не кнопर`. Recovery catches the empty ones at the price of a
-second inference pass. It does **not** catch plausible-looking Cyrillic nonsense
-when Bulgarian is among the candidates, since that validates.
+`Пототекс в Дитно не кнопर`. Recovery catches both, at the price of a second
+inference pass.
+
+Wrong-script output was expected to be the hole here — the assumption being that
+with Bulgarian enabled, any Cyrillic output validates. **Measured false.** Apple's
+recogniser separates Bulgarian from Russian cleanly, so a Cyrillic decode that is
+not Bulgarian is rejected and recovery fires. Candidates `bg`/`de`/`en`:
+
+| transcript | verdict | top hypotheses |
+| --- | --- | --- |
+| `Каких хипари привели са наистина` (wrong decode) | rejected | ru 1.00 |
+| `Понякави пари привели ли са на истины` (wrong decode) | rejected | ru 0.48, kk 0.40, bg 0.12 |
+| `Пототекс в Дитно не кнопе` (nonsense) | rejected | ru 1.00 |
+| `Работи перфектно, благодаря ти много` (real Bulgarian) | accepted | bg 1.00 |
+| `Работи` (one real Bulgarian word) | accepted | bg 0.99 |
+
+What recovery cannot repair is the *audio*: probing `bg-BG` on that clip returns
+the same wrong words, so nothing validates and the primary is preserved. That is
+the intended outcome — a language router cannot fix a bad transcription.
 
 ### Why the empty ones are empty
 
@@ -214,7 +230,23 @@ From `metadata.json` in the installed model directory
   set — so the text validator already rejects it and recovery fires without the
   script check. The trigger only earns its keep when a confusable keyboard
   (Croatian, Czech, Slovak, Polish, Hungarian) is also enabled.
-- **Whisper's own detected language is not wired up.** `whisper_full_lang_id()`
-  would let recovery fire on a wrong-language decode that stays inside one script
-  (Bulgarian read as Russian), which text inference cannot see. Not needed while
-  Nemotron is primary; needed the day Whisper is.
+- **No model-side language signal exists on Nemotron.** It emits no lang-tag
+  tokens in practice, so both `detectedLanguage()` and
+  `lastDecodeStats().detectedLanguage` return nil on every measured run (16, 27
+  and 31 tokens decoded, no tag among them). Any design that wants the model's
+  own opinion of the language has to use Whisper's `whisper_full_lang_id()`
+  instead — but see below for why that is not currently worth wiring up.
+
+## Claims from the earlier branch that did not survive measurement
+
+Both of these were inherited as fact from `MULTILINGUAL_DICTATION_CHANGES.md` and
+used to justify machinery. Re-measure before rebuilding either.
+
+- **"Bulgarian read as Russian looks Bulgarian to `NLLanguageRecognizer`."** False
+  — it scores those decodes as Russian at 1.00 and 0.48, both rejected. This was
+  the entire justification for surfacing `whisper_full_lang_id()` as a
+  side-channel through `LibWhisper` → `WhisperTranscriptionService` → the
+  registry. With the premise gone, that machinery has no job to do.
+- **"Romanised Bulgarian passes the validator."** False for a `bg`/`de`/`en`
+  keyboard set — nine phrases tested, all rejected outright. The script check
+  still earns its keep, but only when a confusable keyboard is also enabled.

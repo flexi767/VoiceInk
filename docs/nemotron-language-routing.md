@@ -237,6 +237,39 @@ From `metadata.json` in the installed model directory
   own opinion of the language has to use Whisper's `whisper_full_lang_id()`
   instead — but see below for why that is not currently worth wiring up.
 
+## Why the primary stays Nemotron, and why there is no short-clip lock
+
+Nemotron is weak on short Bulgarian and no amount of context padding reaches it.
+The same clips through Whisper large-v3-turbo forced to `bg`:
+
+| Nemotron | Whisper large-v3-turbo |
+| --- | --- |
+| `Сега Работ` | `Сега работи.` |
+| `Сега Робот` | `Сега работи.` |
+| `Сега работ` | `Сега работи.` |
+| *(empty)* | `работи` |
+| *(empty)* | `работи` |
+| `Нищо не работи` | `Ништо не работи.` |
+| `Как работи` | `Как работим?` |
+| `Check now please` | `чекната, плее.` |
+
+Whisper recovers every dropped ending and both empty transcripts. It is also
+**worse** on the two Nemotron got right, and it mangled an English utterance into
+Cyrillic — that last row is the translation hazard, not a mishearing: forced into
+a language it is not hearing, Whisper transliterates rather than transcribes.
+
+This fork nevertheless stays on Nemotron. The sibling **Handy** install already
+runs Whisper large-v3-turbo, so the strong-Bulgarian case is covered there, and
+VoiceInk keeps the fast local path. That is a deployment decision, not a quality
+judgement — do not "upgrade" the model here without checking that first.
+
+It is also why **the short-clip language lock is not ported**. Its whole purpose
+is to keep Whisper on auto-detect for longer clips so a keyboard/speech mismatch
+cannot silently translate. Nemotron does not translate — handed the wrong
+language it returns empty — so the rule protects against a failure mode this
+model does not have. If the primary ever becomes Whisper, the lock becomes
+mandatory, not optional.
+
 ## Claims from the earlier branch that did not survive measurement
 
 Both of these were inherited as fact from `MULTILINGUAL_DICTATION_CHANGES.md` and

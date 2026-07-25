@@ -65,12 +65,43 @@ auto into a keyboard language behind the user's back was "the big bug" of the
 earlier branch: whisper.cpp received an unrecognised code, silently fell back to
 English, and translated.
 
-Cost of this choice, measured: auto-detect returned **empty on 3/30 clips** (all
-short) that a forced language transcribed correctly, and produced wrong-script
-output on another — "Put the text of the title next to the icon" came back as
+Cost of this choice, measured: auto-detect returned **empty on 3/30 clips** that
+a forced language transcribed correctly, and produced wrong-script output on
+another — "Put the text of the title next to the icon" came back as
 `Пототекс в Дитно не кнопर`. Recovery catches the empty ones at the price of a
 second inference pass. It does **not** catch plausible-looking Cyrillic nonsense
 when Bulgarian is among the candidates, since that validates.
+
+### Why the empty ones are empty
+
+The three failures were `Test, test, test.` (1.36 s), `Testing.` (1.01 s) and
+`Natively.` (1.20 s). Each hypothesis was tested by changing one variable:
+
+| suspected cause | test | result |
+| --- | --- | --- |
+| final chunk never flushes | trailing silence 0 / 1 / 3 / 6 s | no effect — empty at every padding |
+| clip too short | truncate a working 7.8 s clip to 1.0 s | transcribes fine under `auto` |
+| audio too quiet | peak/RMS of all 30 clips | failures sit mid-pack; quieter clips work |
+| the prompt id | same audio, `auto` vs `en-US` | **empty vs correct, every time** |
+
+So it is not truncation, not duration, and not level — it is the prompt id.
+Under `auto` (id 101) the model has to resolve the language from the audio
+itself, and on a brief, isolated utterance surrounded by silence there is not
+enough evidence to commit. The transducer resolves that ambiguity by emitting
+blanks rather than guessing, so the output is nothing at all rather than a
+wrong-language guess. A forced prompt id removes the ambiguity and it decodes.
+
+Two refinements worth keeping:
+
+- Adding more of the same speech can rescue `auto` but does not always:
+  concatenating `Testing.` with itself yields "Testing testing" under `auto`,
+  while doing the same to `Natively.` still yields nothing.
+- Below roughly 0.5 s, output is empty under **any** prompt id — a 0.45 s slice
+  of speech that works at 1.0 s returns nothing under both `auto` and `en-US`.
+  That is the model's floor, not a routing problem.
+
+This is the single strongest argument for the keyboard option: with it the
+primary pass always carries a prompt id, so this class of failure cannot occur.
 
 ## 4. Only models whose language parameter is a real hint get the option.
 

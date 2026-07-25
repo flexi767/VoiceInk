@@ -172,6 +172,74 @@ struct TranscriptLanguageValidatorTests {
     }
 }
 
+/// Script awareness exists for one failure the text validator cannot see:
+/// handed the wrong language the model romanises instead of failing, and the
+/// romanisation reads as perfectly valid text.
+struct TranscriptScriptAwarenessTests {
+
+    private typealias Validator = TranscriptLanguageValidator
+
+    @Test func detectsScriptsPresentInText() {
+        #expect(Validator.scripts(in: "Hello world") == ["Latin"])
+        #expect(Validator.scripts(in: "Работи перфектно") == ["Cyrillic"])
+        #expect(Validator.scripts(in: "OpenAI тест") == ["Latin", "Cyrillic"])
+        // Punctuation and digits carry no script.
+        #expect(Validator.scripts(in: "123 — !?").isEmpty)
+    }
+
+    @Test func mapsLanguagesToTheirScripts() {
+        #expect(Validator.expectedScript(forBaseSubtag: "bg") == "Cyrillic")
+        #expect(Validator.expectedScript(forBaseSubtag: "de") == "Latin")
+        #expect(Validator.expectedScript(forBaseSubtag: "ja") == "Kana")
+        // Unknown languages default to Latin, which can never add suspicion.
+        #expect(Validator.expectedScript(forBaseSubtag: "xx") == "Latin")
+    }
+
+    @Test func flagsOnlyCandidatesWhoseScriptIsAbsent() {
+        let mismatched = Validator.scriptMismatchedCandidates(
+            ["bg-BG", "de-DE", "en-US"], primary: "Diktur na Bulgarski")
+        // Only Bulgarian expects a script this all-Latin text never produced;
+        // German and English are Latin, so they are not evidence of anything.
+        #expect(mismatched == ["bg-BG"])
+
+        let cyrillic = Validator.scriptMismatchedCandidates(
+            ["bg-BG", "en-US"], primary: "Работи перфектно")
+        #expect(cyrillic.isEmpty)
+    }
+
+    @Test func suspectsARomanisationThatTheValidatorAccepts() {
+        // Romanised Bulgarian. Apple's recogniser reads it as Croatian (~0.78),
+        // with Polish and Indonesian behind it.
+        let text = "Diktur na Bulgarski"
+
+        // With Bulgarian, German and English enabled the text validator already
+        // rejects it outright — all of its probability mass sits outside the
+        // candidate set — so recovery fires without needing the script check.
+        #expect(!Validator.accepts(text, candidates: ["bg-BG", "de-DE", "en-US"]))
+
+        // The hole opens when a keyboard the recogniser confuses Bulgarian with
+        // is also enabled: now the romanisation is explained by an enabled
+        // language and sails through. Only the missing Cyrillic gives it away.
+        let confusable = ["hr-HR", "bg-BG"]
+        #expect(Validator.accepts(text, candidates: confusable))
+        #expect(Validator.scriptMismatchSuspected(text, candidates: confusable))
+    }
+
+    @Test func leavesConfidentLatinDictationAlone() {
+        // A Cyrillic keyboard being installed must not drag every confident
+        // English sentence into a retry.
+        #expect(!Validator.scriptMismatchSuspected(
+            "This is a normal English sentence about deployment scripts.",
+            candidates: ["bg-BG", "en-US"]))
+    }
+
+    @Test func ordersMissingScriptsFirstAndEnglishLast() {
+        let order = TranscriptLanguageRecovery.retryOrder(
+            ["en-US", "de-DE", "bg-BG"], primary: "Diktur na Bulgarski")
+        #expect(order == ["bg-BG", "de-DE", "en-US"])
+    }
+}
+
 /// The recovery loop must never lose a dictation.
 struct TranscriptLanguageRecoveryTests {
 
@@ -214,6 +282,38 @@ struct TranscriptLanguageRecoveryTests {
         // reaching a later language.
         #expect(tried == ["bg-BG", "en-US"])
         #expect(result == "This is a normal English sentence about deployment scripts.")
+    }
+
+    @Test func keepsASuspectPrimaryWhenNoProbeReadsClearlyBetter() async {
+        // Suspected transliteration, but the probe is no better — the margin
+        // stops genuine Latin dictation being over-converted.
+        let primary = "Diktur na Bulgarski"
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: primary,
+            validationCandidates: ["en-US", "bg-BG"],
+            retryCandidates: ["bg-BG"]
+        ) { _ in "Diktur na Bulgarski" }
+        #expect(result == primary)
+    }
+
+    @Test func probesEveryCandidateAndKeepsTheBestReading() async {
+        var tried: [String] = []
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "これは日本語の文章です。今日はとてもいい天気ですね。",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["bg-BG", "de-DE", "en-US"]
+        ) { language in
+            tried.append(language)
+            switch language {
+            case "bg-BG": return "Работи"
+            case "de-DE": return "Das ist ein ganz normaler deutscher Satz über Bereitstellung."
+            default: return "This is a normal English sentence about deployment scripts."
+            }
+        }
+        // All three are probed rather than stopping at the first that validates.
+        #expect(tried.count == 3)
+        #expect(tried.last == "en-US")
+        #expect(!result.isEmpty)
     }
 
     @Test func recoversAnEmptyPrimary() async {

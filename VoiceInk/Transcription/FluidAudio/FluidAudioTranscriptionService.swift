@@ -155,11 +155,15 @@ class FluidAudioTranscriptionService: TranscriptionService {
                 throw ASRError.notInitialized
             }
 
-            let compatibleLanguage = TranscriptionLanguageSupport.validLanguageOrFallback(
+            let compatibleLanguage = KeyboardLanguagePolicy.resolvedLanguage(
                 context.language,
                 for: model
             )
             let languageHint = FluidAudioModelManager.nemotronLanguageHint(from: compatibleLanguage)
+            // `setLanguage` only selects the encoder prompt id, which is safe.
+            // Never call `setForcedPrefix` here: seeding the decoder with the
+            // lang-tag token consumes the first emission slot and deletes the
+            // opening word of the dictation. Measured on 30 retained clips.
             await nemotronAsrManager.setLanguage(languageHint)
             await nemotronAsrManager.reset()
 

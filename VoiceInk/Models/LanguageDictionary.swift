@@ -1,8 +1,31 @@
 import Foundation
 
 enum TranscriptionLanguageSupport {
+    /// The language menu for a model. `KeyboardLanguagePolicy` adds the
+    /// `follow_keyboard` sentinel for models that accept a real language hint,
+    /// which is also what makes `validLanguageOrFallback` below preserve a
+    /// stored `follow_keyboard` selection instead of coercing it to auto.
     static func languages(for model: any TranscriptionModel, realtimeEnabled: Bool? = nil) -> [String: String] {
-        model.supportedLanguages
+        KeyboardLanguagePolicy.selectableLanguages(for: model)
+    }
+
+    /// Menu order for a language picker: the routing modes first — auto-detect,
+    /// then installed keyboard languages — and the concrete languages after them,
+    /// alphabetically. Both modes would otherwise sort by their display name and
+    /// end up buried among the languages they choose between.
+    static func menuOrder(_ languages: [String: String]) -> [(key: String, value: String)] {
+        func rank(_ key: String) -> Int {
+            switch key {
+            case "auto": return 0
+            case KeyboardLanguagePolicy.followKeyboardCode: return 1
+            default: return 2
+            }
+        }
+
+        return languages.sorted { lhs, rhs in
+            let (lhsRank, rhsRank) = (rank(lhs.key), rank(rhs.key))
+            return lhsRank == rhsRank ? lhs.value < rhs.value : lhsRank < rhsRank
+        }
     }
 
     static func validLanguageOrFallback(

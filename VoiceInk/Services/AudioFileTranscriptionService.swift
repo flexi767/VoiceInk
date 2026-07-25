@@ -51,10 +51,12 @@ class AudioTranscriptionService: ObservableObject {
 
         do {
             let mode = mode ?? ModeManager.shared.currentEffectiveConfiguration
-            let language = TranscriptionLanguageSupport.validLanguageOrFallback(
+            // File transcription has no recording, so there is no frozen
+            // snapshot to read; resolve `follow_keyboard` against the layout
+            // active right now.
+            let language = KeyboardLanguagePolicy.resolvedLanguage(
                 mode?.selectedLanguage,
-                for: model,
-                realtimeEnabled: mode?.isRealtimeTranscriptionEnabled
+                for: model
             )
             let requestContext = TranscriptionRequestContext(
                 language: language,

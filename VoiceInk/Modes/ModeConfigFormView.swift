@@ -270,11 +270,8 @@ struct ModeConfigFormView: View {
 
                 Picker("", selection: languageBinding) {
                     ForEach(
-                        availableLanguages(for: modelInfo).sorted(by: {
-                            if $0.key == "auto" { return true }
-                            if $1.key == "auto" { return false }
-                            return $0.value < $1.value
-                        }), id: \.key
+                        TranscriptionLanguageSupport.menuOrder(
+                            availableLanguages(for: modelInfo)), id: \.key
                     ) { key, value in
                         Text(value).tag(key as String?)
                     }

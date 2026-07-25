@@ -108,6 +108,32 @@ These were applied to the installed app's settings, separate from code:
    drop was introduced by the experimental stack (keyboard-routing / recovery / short-clip lock,
    and/or the forced-language + realtime experiments), not by FluidAudio or by "old code." Going
    back to pristine 2.0 *fixed* it. Do not re-blame the base for this.
+
+   **CAUSE IDENTIFIED 2026-07-25: `setForcedPrefix(true)`.** Reproduced offline by replaying 30
+   retained WAVs through `StreamingNemotronMultilingualAsrManager` twice — same audio, same
+   `en-US` hint, forced prefix the only variable:
+
+   | plain | forced prefix |
+   | --- | --- |
+   | **Are** we still on the old model? | we're still on the old model |
+   | **Crops out** the car that he detects | the car that he detects |
+   | **We** had a pretty long run trying… | had a pretty long run trying… |
+   | **Did** you commit everything | you commit everything |
+
+   `applyForcedPrefixIfNeeded` seeds the decoder LSTM with the lang-tag token and sets
+   `lastToken` to it, so the model no longer emits its own leading `<|xx|>` tag — and the first
+   real token goes with it. **Never enable forced prefix.** A plain `setLanguage` (encoder
+   `prompt_id`) is safe: 23/30 clips keep a byte-identical first word versus auto-detect, and
+   where they differ the forced result is longer, never truncated.
+
+   Two things the same experiment settled:
+   - Auto-detect returned **empty** on 3/30 clips (all short) that a forced language transcribed
+     correctly, and picked the wrong *script* outright on another ("Put the text of the title
+     next to the icon" → "Пототекс в Дитно не кнопर"). This is the case for keyboard routing.
+   - Parakeet's language parameter is a `TokenLanguageFilter` — a Unicode *script* filter over
+     the joint network's argmax, not a language lock. Forcing one suppresses every token in the
+     wrong script, leading word included, which is why `KeyboardLanguagePolicy` never hands a
+     keyboard-derived language to a Parakeet model.
 3. **Short/fast Bulgarian garbles even offline** (detected as Arabic/Icelandic) — the model
    genuinely lacks signal; no routing logic fixes it. Mic level and enunciation/length matter most.
 4. **Microphone level was a real culprit** — the MacBook mic recorded ~20 dB too quiet; the

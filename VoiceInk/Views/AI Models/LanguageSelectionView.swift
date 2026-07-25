@@ -127,11 +127,8 @@ struct LanguageSelectionView: View {
                         HStack(spacing: 8) {
                             Picker("Select Language", selection: selectedLanguageBinding) {
                                 ForEach(
-                                    availableLanguagesForCurrentModel().sorted(by: {
-                                        if $0.key == "auto" { return true }
-                                        if $1.key == "auto" { return false }
-                                        return $0.value < $1.value
-                                    }), id: \.key
+                                    TranscriptionLanguageSupport.menuOrder(
+                                        availableLanguagesForCurrentModel()), id: \.key
                                 ) { key, value in
                                     Text(value).tag(key)
                                 }
@@ -195,11 +192,8 @@ struct LanguageSelectionView: View {
                 HStack(spacing: 8) {
                     Menu {
                         ForEach(
-                            availableLanguagesForCurrentModel().sorted(by: {
-                                if $0.key == "auto" { return true }
-                                if $1.key == "auto" { return false }
-                                return $0.value < $1.value
-                            }), id: \.key
+                            TranscriptionLanguageSupport.menuOrder(
+                                availableLanguagesForCurrentModel()), id: \.key
                         ) { key, value in
                             Button {
                                 updateLanguage(key)

@@ -95,6 +95,11 @@ class VoiceInkEngine: NSObject, ObservableObject {
     @Published var recordingState: RecordingState = .idle
     @Published var shouldCancelRecording = false
     @Published var partialTranscript: String = ""
+    /// Two-letter code of the language frozen for the current recording, shown
+    /// beside the recorder controls. A keyboard/speech mismatch — typing layout
+    /// on English while speaking Bulgarian — is the root of most wrong-language
+    /// dictations, and is invisible without this.
+    @Published var recorderLanguageCode: String = "--"
     var currentSession: TranscriptionSession?
     private var currentSessionTranscriptionConfiguration: TranscriptionRuntimeConfiguration?
     private var activeRecordingStartID: UUID?
@@ -304,6 +309,10 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                 await self.recorderUIManager?.dismissRecorderPanel()
                                 return
                             }
+
+                            self.recorderLanguageCode = KeyboardLanguagePolicy.twoLetterDisplayCode(
+                                for: transcriptionConfiguration.language
+                            )
 
                             if self.serviceRegistry.shouldUseRealtimeTranscription(for: transcriptionConfiguration) {
                                 let session = self.serviceRegistry.createSession(

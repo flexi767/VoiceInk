@@ -4,7 +4,17 @@ struct TranscriptionRuntimeConfiguration {
     let mode: ModeConfig?
     let model: any TranscriptionModel
     let language: String
+    /// Languages frozen for this recording, in the order they should be tried:
+    /// `language` first, then wrong-language recovery candidates. Holds a single
+    /// element whenever recovery does not apply.
+    let languageCandidates: [String]
     let isRealtimeEnabled: Bool
+
+    /// Candidates to retry the retained audio with when the primary transcript
+    /// lands outside the user's keyboard languages.
+    var recoveryCandidates: [String] {
+        Array(languageCandidates.dropFirst())
+    }
 
     var metadata: (name: String?, emoji: String?) {
         guard let mode, mode.isEnabled else {
@@ -71,16 +81,25 @@ enum ModeRuntimeResolver {
 
         guard let model else { return nil }
 
-        let language = TranscriptionLanguageSupport.validLanguageOrFallback(
+        let configuredLanguage = TranscriptionLanguageSupport.validLanguageOrFallback(
             mode?.selectedLanguage,
             for: model,
             realtimeEnabled: mode?.isRealtimeTranscriptionEnabled
         )
+        // Resolved here because this runs at recording start: the keyboard the
+        // user had when they pressed the shortcut is the one that counts, and
+        // switching layouts mid-sentence must not change the decode.
+        let languageCandidates = KeyboardLanguagePolicy.recordingLanguages(
+            configuredLanguage: configuredLanguage,
+            for: model
+        )
+        let language = languageCandidates.first ?? configuredLanguage
 
         return TranscriptionRuntimeConfiguration(
             mode: mode,
             model: model,
             language: language,
+            languageCandidates: languageCandidates,
             isRealtimeEnabled: TranscriptionRealtimeSupport.isEnabled(
                 for: model, modeValue: mode?.isRealtimeTranscriptionEnabled)
         )

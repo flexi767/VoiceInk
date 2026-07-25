@@ -28,6 +28,37 @@ class TranscriptionPipeline {
     private let delivery = TranscriptionDelivery()
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "TranscriptionPipeline")
 
+    /// Retries the retained audio with each frozen keyboard language when the
+    /// primary transcript lands outside the languages the user types.
+    ///
+    /// Runs only when the recording actually froze more than one candidate,
+    /// which `KeyboardLanguagePolicy.recordingLanguages` reserves for
+    /// follow-keyboard and auto-detect. An explicit language choice is never
+    /// second-guessed.
+    private func recoverWrongLanguage(
+        _ text: String,
+        audioURL: URL,
+        model: any TranscriptionModel,
+        configuration: TranscriptionRuntimeConfiguration,
+        shouldCancel: () -> Bool
+    ) async -> String {
+        guard !configuration.recoveryCandidates.isEmpty else { return text }
+
+        return await TranscriptLanguageRecovery.selectTranscript(
+            primary: text,
+            validationCandidates: configuration.languageCandidates,
+            retryCandidates: configuration.recoveryCandidates
+        ) { language in
+            if shouldCancel() { throw CancellationError() }
+            let attempt = try await self.serviceRegistry.transcribe(
+                audioURL: audioURL,
+                model: model,
+                context: TranscriptionRequestContext(language: language, prompt: nil)
+            )
+            return TranscriptionOutputFilter.filter(attempt)
+        }
+    }
+
     init(
         modelContext: ModelContext,
         serviceRegistry: TranscriptionServiceRegistry,
@@ -112,6 +143,13 @@ class TranscriptionPipeline {
                 )
             }
             text = TranscriptionOutputFilter.filter(text)
+            text = await recoverWrongLanguage(
+                text,
+                audioURL: audioURL,
+                model: model,
+                configuration: transcriptionConfiguration,
+                shouldCancel: shouldCancel
+            )
             let transcriptionDuration = Date().timeIntervalSince(transcriptionStart)
 
             if shouldCancel() {

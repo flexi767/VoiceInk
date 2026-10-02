@@ -250,6 +250,26 @@ enum TranscriptLanguageRecovery {
         /// empty-primary case — see the fallback below.
         var anyText: String?
 
+        // When the primary failed outright, probes written in the active
+        // keyboard's script outrank the rest. The recogniser cannot tell real
+        // Cyrillic from Cyrillic-shaped noise — Nemotron forced to Bulgarian on
+        // English audio returns `Лозън да фокус`, which scores bg 1.00, while
+        // genuine English scores around 0.90 — so on score alone a cross-script
+        // probe of the wrong audio beats a correct one. The active layout is the
+        // user's own signal; another script wins only when its own does not.
+        // Not applied to a suspect primary, whose whole point is finding a
+        // script that never appeared.
+        let preferredScript: String? = {
+            guard !accepted,
+                let primaryLanguage = validationCandidates.first,
+                primaryLanguage != KeyboardLanguagePolicy.autoDetectCode,
+                let subtag = KeyboardLanguagePolicy.baseSubtag(primaryLanguage)
+            else { return nil }
+            return TranscriptLanguageValidator.expectedScript(forBaseSubtag: subtag)
+        }()
+        var preferredBest: (text: String, score: Double)?
+        var preferredAnyText: String?
+
         for candidate in ordered {
             do {
                 let attempt = try await retry(candidate)
@@ -258,7 +278,12 @@ enum TranscriptLanguageRecovery {
                     logger.notice("Forced \(candidate, privacy: .public) returned nothing")
                     continue
                 }
+                let isPreferred =
+                    preferredScript != nil
+                    && KeyboardLanguagePolicy.baseSubtag(candidate).map(
+                        TranscriptLanguageValidator.expectedScript(forBaseSubtag:)) == preferredScript
                 if anyText == nil { anyText = attempt }
+                if isPreferred, preferredAnyText == nil { preferredAnyText = attempt }
                 // Validated against the single language it was forced to, not the
                 // whole set: a retry that drifted back to the wrong language must
                 // not pass just because some other keyboard would explain it.
@@ -271,6 +296,9 @@ enum TranscriptLanguageRecovery {
                 if best == nil || score > best!.score {
                     best = (attempt, score)
                 }
+                if isPreferred, preferredBest == nil || score > preferredBest!.score {
+                    preferredBest = (attempt, score)
+                }
             } catch is CancellationError {
                 return primary
             } catch {
@@ -279,6 +307,9 @@ enum TranscriptLanguageRecovery {
                 )
             }
         }
+
+        if let preferredBest { best = preferredBest }
+        if let preferredAnyText { anyText = preferredAnyText }
 
         guard let best else {
             // Validation decides which transcript is *preferred*, never whether

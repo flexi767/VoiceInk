@@ -360,6 +360,45 @@ struct TranscriptLanguageRecoveryTests {
         #expect(result == primary)
     }
 
+    @Test func prefersTheActiveKeyboardsScriptOverCyrillicNoise() async {
+        // Reproduces 2026-10-02: English spoken on a German layout. Forced German
+        // returned nothing; forced Bulgarian returned noise that the recogniser
+        // scores bg 1.00, above the genuine English at ~0.90, so it won.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "",
+            validationCandidates: ["de-DE", "bg-BG", "en-US"],
+            retryCandidates: ["bg-BG", "en-US"]
+        ) { language in
+            language == "bg-BG" ? "Лозън да фокус -" : "Close the focus window please"
+        }
+        #expect(result == "Close the focus window please")
+    }
+
+    @Test func stillRecoversBulgarianOnALatinLayout() async {
+        // The preference only breaks ties in favour of the active script; when
+        // no Latin probe validates, a validated Bulgarian one must still win.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "",
+            validationCandidates: ["de-DE", "bg-BG", "en-US"],
+            retryCandidates: ["bg-BG", "en-US"]
+        ) { language in
+            language == "bg-BG" ? "Сега работи" : ""
+        }
+        #expect(result == "Сега работи")
+    }
+
+    @Test func ranksOnScoreAloneOnAutoDetect() async {
+        // Auto-detect names no active script, so no preference applies.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "",
+            validationCandidates: ["auto", "bg-BG", "en-US"],
+            retryCandidates: ["bg-BG", "en-US"]
+        ) { language in
+            language == "bg-BG" ? "Сега работи" : "Close the focus window please"
+        }
+        #expect(result == "Сега работи")
+    }
+
     @Test func recoversAnEmptyPrimary() async {
         let result = await TranscriptLanguageRecovery.selectTranscript(
             primary: "",

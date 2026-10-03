@@ -69,7 +69,7 @@ local-fast: check setup
 		exit 1; \
 	}
 	@echo "Building VoiceInk with $(LOCAL_SIGNING_IDENTITY)..."
-	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Debug \
+	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Release \
 		-derivedDataPath "$(LOCAL_DERIVED_DATA)" \
 		-xcconfig LocalBuild.xcconfig \
 		CODE_SIGNING_REQUIRED=YES \
@@ -79,7 +79,7 @@ local-fast: check setup
 		-skipPackagePluginValidation \
 		-skipMacroValidation \
 		build
-	@APP_PATH="$(LOCAL_DERIVED_DATA)/Build/Products/Debug/VoiceInk.app" && \
+	@APP_PATH="$(LOCAL_DERIVED_DATA)/Build/Products/Release/VoiceInk.app" && \
 	if [ -d "$$APP_PATH" ]; then \
 		codesign --verify --deep --strict "$$APP_PATH"; \
 		codesign -dvv "$$APP_PATH" 2>&1 | grep -q "Authority=$(LOCAL_SIGNING_IDENTITY)"; \

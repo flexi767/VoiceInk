@@ -26,6 +26,10 @@ enum TranscriptLanguageValidator {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
 
+        // Checked before the recogniser, which scores `Iс-Terme that speaks…`
+        // as plain English and Cyrillic noise as plain Bulgarian.
+        if hasMixedScriptWord(trimmed) { return false }
+
         let bases = Set(candidates.compactMap { KeyboardLanguagePolicy.baseSubtag($0) })
         guard !bases.isEmpty else { return true }
 
@@ -90,6 +94,25 @@ enum TranscriptLanguageValidator {
         case "he", "yi": return "Hebrew"
         default: return "Latin"
         }
+    }
+
+    /// Whether one unbroken run of letters mixes scripts, e.g. the Cyrillic `с`
+    /// in `Iс-Terme` or `проmpt`. No language writes a word that way; it is
+    /// what a decode forced to the wrong language produces mid-word. Runs end at
+    /// any non-letter, so Bulgarian suffixes on Latin names (`Google-ът`,
+    /// `PC-то`) are two runs and stay valid. Measured 2026-10-03 on 882 real
+    /// dictations: three hits, all three corruptions.
+    static func hasMixedScriptWord(_ text: String) -> Bool {
+        var run = ""
+        for character in text + " " {
+            if character.isLetter {
+                run.append(character)
+                continue
+            }
+            if scripts(in: run).count > 1 { return true }
+            run = ""
+        }
+        return false
     }
 
     /// The scripts present among the alphabetic characters of `text`.

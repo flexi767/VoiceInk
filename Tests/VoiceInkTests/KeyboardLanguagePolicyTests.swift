@@ -183,6 +183,20 @@ struct TranscriptScriptAwarenessTests {
 
     private typealias Validator = TranscriptLanguageValidator
 
+    @Test func flagsWordsThatMixScripts() {
+        // The three hits in 882 real dictations — all corruptions.
+        #expect(Validator.hasMixedScriptWord("Iс-Terme that speaks against migration"))
+        #expect(Validator.hasMixedScriptWord("Please проmpt me -"))
+        #expect(Validator.hasMixedScriptWord("Worsky робоti, to szczyt jak."))
+        #expect(!Validator.accepts("Iс-Terme that speaks against migration", candidates: ["bg-BG", "en-US"]))
+    }
+
+    @Test func allowsBulgarianSuffixesOnLatinNames() {
+        #expect(!Validator.hasMixedScriptWord("Google-ът пусна нов модел за PC-то"))
+        #expect(!Validator.hasMixedScriptWord("OpenAI тест"))
+        #expect(!Validator.hasMixedScriptWord("Das ist mein Maximum für den Einkauf"))
+    }
+
     @Test func detectsScriptsPresentInText() {
         #expect(Validator.scripts(in: "Hello world") == ["Latin"])
         #expect(Validator.scripts(in: "Работи перфектно") == ["Cyrillic"])
@@ -397,6 +411,17 @@ struct TranscriptLanguageRecoveryTests {
             language == "bg-BG" ? "Сега работи" : "Close the focus window please"
         }
         #expect(result == "Сега работи")
+    }
+
+    @Test func recoversAMixedScriptPrimary() async {
+        // 2026-10-03 12:34: English on the Bulgarian layout. Forced Bulgarian
+        // slipped a Cyrillic `с` into `Is`; forced English had it right.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Iс-Terme that speaks against migration",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { _ in "Is there something that speaks against migration" }
+        #expect(result == "Is there something that speaks against migration")
     }
 
     @Test func recoversAnEmptyPrimary() async {

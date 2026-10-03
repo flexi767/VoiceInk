@@ -284,6 +284,51 @@ enum TranscriptLanguageRecovery {
         return nil
     }
 
+    /// Whether a rejected primary in its own keyboard's script should survive a
+    /// replacement in another script.
+    ///
+    /// The recogniser rejects some genuine Bulgarian as a neighbouring Cyrillic
+    /// language — `Сканиримо лише карта` reads as uk 0.98 — and a forced German
+    /// retry then turned it into `Skaniere molition der Karta`. A cross-script
+    /// replacement now needs to be uncontradicted: it stands when two forced
+    /// languages produce it, or when auto-detect agrees or hears nothing, and
+    /// is refused when auto-detect heard something else.
+    ///
+    /// Measured 2026-10-03 on the 16 real dictations whose Bulgarian decode is
+    /// rejected: of the 7 replaced with Latin text, this keeps the one that was
+    /// Bulgarian and still replaces the six that were English or German. Costs
+    /// one auto-detect decode, and only when a lone forced retry would replace
+    /// a rejected primary across scripts.
+    static func replacementIsContradicted(
+        primary: String,
+        replacement: String,
+        validationCandidates: [String],
+        probeTexts: [String],
+        retry: (String) async throws -> String
+    ) async -> Bool {
+        guard let primaryLanguage = validationCandidates.first,
+            primaryLanguage != KeyboardLanguagePolicy.autoDetectCode,
+            let subtag = KeyboardLanguagePolicy.baseSubtag(primaryLanguage)
+        else { return false }
+
+        let keyboardScript = TranscriptLanguageValidator.expectedScript(forBaseSubtag: subtag)
+        guard TranscriptLanguageValidator.scripts(in: primary).contains(keyboardScript),
+            !TranscriptLanguageValidator.scripts(in: replacement).contains(keyboardScript)
+        else { return false }
+
+        let target = comparable(replacement)
+        let agreeing = probeTexts.filter { comparable($0) == target }.count
+        guard agreeing < 2 else { return false }
+
+        guard
+            let auto = try? await retry(KeyboardLanguagePolicy.autoDetectCode)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !auto.isEmpty
+        else { return false }
+
+        return comparable(auto) != target
+    }
+
     /// Lowercased letters and single spaces only, so punctuation and casing
     /// differences between two decodes of the same speech do not matter.
     private static func comparable(_ text: String) -> String {
@@ -355,6 +400,8 @@ enum TranscriptLanguageRecovery {
         }()
         var preferredBest: (text: String, score: Double)?
         var preferredAnyText: String?
+        /// Every non-empty probe, for corroborating a cross-script replacement.
+        var probeTexts: [String] = []
 
         for candidate in ordered {
             do {
@@ -370,6 +417,7 @@ enum TranscriptLanguageRecovery {
                         TranscriptLanguageValidator.expectedScript(forBaseSubtag:)) == preferredScript
                 if anyText == nil { anyText = attempt }
                 if isPreferred, preferredAnyText == nil { preferredAnyText = attempt }
+                probeTexts.append(attempt)
                 // Validated against the single language it was forced to, not the
                 // whole set: a retry that drifted back to the wrong language must
                 // not pass just because some other keyboard would explain it.
@@ -431,6 +479,14 @@ enum TranscriptLanguageRecovery {
         }
 
         guard accepted else {
+            if !isEmpty,
+                await replacementIsContradicted(
+                    primary: primary, replacement: best.text,
+                    validationCandidates: validationCandidates, probeTexts: probeTexts, retry: retry)
+            {
+                logger.notice("Auto-detect contradicts the only cross-script retry; keeping the primary")
+                return primary
+            }
             logger.notice("Recovered a rejected dictation from a forced retry")
             return best.text
         }

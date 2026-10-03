@@ -479,6 +479,50 @@ struct TranscriptLanguageRecoveryTests {
         #expect(result == "Wallbox")
     }
 
+    // Real decodes of the 2026-07-24 18:41 recording, which was Bulgarian.
+    // The recogniser reads the Bulgarian decode as Ukrainian (uk 0.98), so it
+    // is rejected; only German produced a replacement, and auto contradicts it.
+    @Test func keepsARejectedBulgarianPrimaryWhenAutoContradictsTheLatinRetry() async {
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Сканиримо лише карта",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            switch language {
+            case "de-DE": return "Skaniere molition der Karta"
+            case "auto": return "Skanieremo lišenта картa"
+            default: return ""
+            }
+        }
+        #expect(result == "Сканиримо лише карта")
+    }
+
+    // 2026-09-28 13:31: German and English agree, so the Latin retry stands
+    // even though auto heard something else.
+    @Test func replacesARejectedCyrillicPrimaryWhenTwoForcedLanguagesAgree() async {
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Райкид 30 минут",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            language == "auto" ? "Räkid thirty minute" : "Make it thirty minutes"
+        }
+        #expect(result == "Make it thirty minutes")
+    }
+
+    // 2026-10-02 09:58: only German heard words and auto heard nothing — no
+    // contradiction, so the German retry stands.
+    @Test func replacesARejectedCyrillicPrimaryWhenAutoHearsNothing() async {
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Йодин зимих питан Руфен",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            language == "de-DE" ? "Würden Sie mich pitter anrufen" : ""
+        }
+        #expect(result == "Würden Sie mich pitter anrufen")
+    }
+
     @Test func recoversAnEmptyPrimary() async {
         let result = await TranscriptLanguageRecovery.selectTranscript(
             primary: "",

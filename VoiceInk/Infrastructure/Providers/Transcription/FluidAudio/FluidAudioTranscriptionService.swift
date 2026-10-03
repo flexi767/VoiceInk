@@ -170,8 +170,13 @@ class FluidAudioTranscriptionService: TranscriptionService {
             await nemotronAsrManager.setLanguage(languageHint)
             await nemotronAsrManager.reset()
 
-            var speechAudio = try await preparedSpeechAudio(from: audioURL)
-            guard !speechAudio.isEmpty else { return "" }
+            // No VAD trimming here, unlike the other FluidAudio paths: Nemotron
+            // needs the context VAD cuts away. Measured 2026-10-03 on seven
+            // retained short clips: with VAD, two that decoded correctly in
+            // German (`Sondern das würden Ausburg Kennzeichen kosten`,
+            // `Würden Sie mich pitter anrufen`) came back empty and recovery
+            // replaced them with Cyrillic noise; VAD improved none.
+            var speechAudio = try loadAudioSamples(from: audioURL)
             let silenceSamples = 16_000
             let maxSingleChunkSamples = 240_000
             // Silence on both sides: the encoder needs left context before the

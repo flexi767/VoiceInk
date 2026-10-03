@@ -359,7 +359,8 @@ struct TranscriptLanguageRecoveryTests {
             tried.append(language)
             return ""
         }
-        #expect(tried == ["en-US", "bg-BG"])
+        // Auto-detect is the last resort once every keyboard language is empty.
+        #expect(tried == ["en-US", "bg-BG", "auto"])
     }
 
     @Test func stillPrefersThePrimaryWhenItIsNotEmpty() async {
@@ -422,6 +423,60 @@ struct TranscriptLanguageRecoveryTests {
             retryCandidates: ["de-DE", "en-US"]
         ) { _ in "Is there something that speaks against migration" }
         #expect(result == "Is there something that speaks against migration")
+    }
+
+    @Test func crossCheckReplacesCyrillicNoiseWhenAutoAndAForcedLanguageAgree() async {
+        // 2026-10-02 16:41: English on the Bulgarian layout.
+        var tried: [String] = []
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Мек ПСолд видеопла",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            tried.append(language)
+            return "Make PC the default video player"
+        }
+        #expect(tried == ["auto", "de-DE"])
+        #expect(result == "Make PC the default video player")
+    }
+
+    @Test func crossCheckKeepsGenuineBulgarian() async {
+        // Auto romanises real Bulgarian (`Raboti`), which no forced decode
+        // reproduces — so the primary stands.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Сега работи",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            language == "auto" ? "Sega raboti" : ""
+        }
+        #expect(result == "Сега работи")
+    }
+
+    @Test func crossCheckDoesNotRunForLatinPrimaries() async {
+        var attempts = 0
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Das ist mein Maximum für den Einkauf",
+            validationCandidates: ["de-DE", "bg-BG", "en-US"],
+            retryCandidates: ["bg-BG", "en-US"]
+        ) { _ in
+            attempts += 1
+            return "unused"
+        }
+        #expect(attempts == 0)
+        #expect(result == "Das ist mein Maximum für den Einkauf")
+    }
+
+    @Test func fallsBackToAutoDetectWhenEveryLanguageIsEmpty() async {
+        // 2026-10-02 16:49: 1.4 s, empty in de, bg and en.
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "",
+            validationCandidates: ["de-DE", "bg-BG", "en-US"],
+            retryCandidates: ["bg-BG", "en-US"]
+        ) { language in
+            language == "auto" ? "Wallbox" : ""
+        }
+        #expect(result == "Wallbox")
     }
 
     @Test func recoversAnEmptyPrimary() async {

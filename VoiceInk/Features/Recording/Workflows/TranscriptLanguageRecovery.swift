@@ -234,6 +234,65 @@ enum TranscriptLanguageRecovery {
     ///     transcript in the primary language is by definition not in any of the
     ///     fallbacks.
     ///   - retryCandidates: the languages to re-run the retained audio with.
+    /// A second opinion for an accepted Cyrillic primary, which the validator
+    /// cannot judge: Nemotron forced to Bulgarian writes English or German
+    /// speech out in Cyrillic (`Мек ПСолд видеопла`), and the recogniser scores
+    /// any Cyrillic as Bulgarian. Auto-detect is run once; only when it hears
+    /// Latin text that a forced Latin-keyboard language reproduces word for
+    /// word is the primary replaced. Genuine Bulgarian survives because auto's
+    /// romanisation (`Raboti` for `Работи`) never matches a forced decode.
+    ///
+    /// Measured 2026-10-03 over 134 real dictations with a Cyrillic primary:
+    /// it fired 9 times, all 9 English or German recovered from Cyrillic noise
+    /// (`Let's give it another shot`, `Ich dachte, es ist lang`), and never on
+    /// Bulgarian. Costs one extra decode per Cyrillic dictation, plus one per
+    /// Latin candidate when auto comes back Latin.
+    static func crossCheckedTranscript(
+        primary: String,
+        validationCandidates: [String],
+        retry: (String) async throws -> String
+    ) async -> String? {
+        guard let primaryLanguage = validationCandidates.first,
+            primaryLanguage != KeyboardLanguagePolicy.autoDetectCode,
+            TranscriptLanguageValidator.scripts(in: primary).contains("Cyrillic")
+        else { return nil }
+
+        let latinCandidates = validationCandidates.dropFirst().filter { candidate in
+            KeyboardLanguagePolicy.baseSubtag(candidate).map(
+                TranscriptLanguageValidator.expectedScript(forBaseSubtag:)) == "Latin"
+        }
+        guard !latinCandidates.isEmpty else { return nil }
+
+        do {
+            let auto = try await retry(KeyboardLanguagePolicy.autoDetectCode)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !auto.isEmpty, TranscriptLanguageValidator.scripts(in: auto) == ["Latin"]
+            else { return nil }
+
+            for candidate in latinCandidates {
+                let forced = try await retry(candidate)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !forced.isEmpty, comparable(forced) == comparable(auto) {
+                    logger.notice(
+                        "Auto-detect and forced \(candidate, privacy: .public) agree; replacing a Cyrillic primary")
+                    return forced
+                }
+            }
+        } catch {
+            logger.notice("Cross-check skipped: \(error.localizedDescription, privacy: .public)")
+        }
+        return nil
+    }
+
+    /// Lowercased letters and single spaces only, so punctuation and casing
+    /// differences between two decodes of the same speech do not matter.
+    private static func comparable(_ text: String) -> String {
+        let kept = text.lowercased().unicodeScalars.map { scalar -> Character in
+            CharacterSet.letters.contains(scalar) ? Character(scalar) : " "
+        }
+        return String(kept).split(separator: " ").joined(separator: " ")
+    }
+
     static func selectTranscript(
         primary: String,
         validationCandidates: [String],
@@ -251,7 +310,11 @@ enum TranscriptLanguageRecovery {
             && TranscriptLanguageValidator.scriptMismatchSuspected(
                 primary, candidates: validationCandidates)
 
-        guard !accepted || suspect else { return primary }
+        guard !accepted || suspect else {
+            return await crossCheckedTranscript(
+                primary: primary, validationCandidates: validationCandidates, retry: retry)
+                ?? primary
+        }
 
         // An empty primary is a different problem from a wrong-language one. On
         // auto-detect the model returns nothing when a brief utterance gives it
@@ -348,6 +411,20 @@ enum TranscriptLanguageRecovery {
             if isEmpty, let anyText {
                 logger.notice("No probe validated, but the primary was empty; keeping the words")
                 return anyText
+            }
+            // Every keyboard language heard nothing. Auto-detect gets one try:
+            // it is a poor primary but the only decode left. Measured 2026-10-03
+            // on 144 real dictations that were empty in every forced language:
+            // it recovered 2 (`Wallbox`, `Test-Test`) and returned nothing for
+            // the rest, so it costs one decode only when the result is empty.
+            if isEmpty, anyText == nil,
+                validationCandidates.first != KeyboardLanguagePolicy.autoDetectCode,
+                let auto = try? await retry(KeyboardLanguagePolicy.autoDetectCode)
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !auto.isEmpty
+            {
+                logger.notice("Every keyboard language was empty; keeping auto-detect's words")
+                return auto
             }
             logger.warning("No candidate validated; preserving the primary transcript")
             return primary

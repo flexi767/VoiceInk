@@ -105,8 +105,10 @@ local-fast: check setup
 	fi
 
 # Run application
+# `make run` opens the installed app; `make dev` sets RUN_APP_NAME to the
+# separate "VoiceInk Dev" build and must never open the production install.
 run:
-	@if [ -d "$(LOCAL_APP_PATH)" ]; then \
+	@if [ "$(RUN_APP_NAME)" = "VoiceInk" ] && [ -d "$(LOCAL_APP_PATH)" ]; then \
 		echo "Opening $(LOCAL_APP_PATH)..."; \
 		open "$(LOCAL_APP_PATH)"; \
 	else \

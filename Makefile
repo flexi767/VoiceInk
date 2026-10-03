@@ -7,13 +7,15 @@ LOCAL_SIGNING_IDENTITY := Apple Development: i@jlzov.com (SFRBKW6P78)
 LOCAL_SIGNING_CERT_SHA1 := 158D75C090FD771527624707372E63CB8952B69A
 LOCAL_DEVELOPMENT_TEAM := NKW2BHRJH2
 LOCAL_APP_PATH := /Applications/VoiceInk.app
+RUN_APP_NAME ?= VoiceInk
 
-.PHONY: all clean whisper setup build local local-fast check healthcheck help dev run
+.PHONY: all clean whisper setup build local local-fast check healthcheck help dev run release release-setup
 
 # Default target
 all: check build
 
 # Development workflow
+dev: RUN_APP_NAME = VoiceInk Dev
 dev: build run
 
 # Prerequisites
@@ -46,7 +48,10 @@ setup: whisper
 	@echo "Please ensure your Xcode project references the framework from this new location."
 
 build: setup
-	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Debug CODE_SIGN_IDENTITY="" build
+	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Debug CODE_SIGN_IDENTITY="" \
+		-skipPackagePluginValidation \
+		-skipMacroValidation \
+		build
 
 # Build, verify, install, and launch a persistently signed local app.
 # Starts from a clean derived-data tree: a stale object file has masked several
@@ -71,6 +76,8 @@ local-fast: check setup
 		CODE_SIGNING_ALLOWED=YES \
 		CODE_SIGN_ENTITLEMENTS="$(CURDIR)/VoiceInk/VoiceInk.local.entitlements" \
 		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$$(inherited) LOCAL_BUILD' \
+		-skipPackagePluginValidation \
+		-skipMacroValidation \
 		build
 	@APP_PATH="$(LOCAL_DERIVED_DATA)/Build/Products/Debug/VoiceInk.app" && \
 	if [ -d "$$APP_PATH" ]; then \
@@ -103,16 +110,28 @@ run:
 		echo "Opening $(LOCAL_APP_PATH)..."; \
 		open "$(LOCAL_APP_PATH)"; \
 	else \
-		echo "Looking for VoiceInk.app in DerivedData..."; \
-		APP_PATH=$$(find "$$HOME/Library/Developer/Xcode/DerivedData" -name "VoiceInk.app" -type d | head -1) && \
+		echo "Looking for $(RUN_APP_NAME).app in DerivedData..."; \
+		APP_PATH=$$(find "$$HOME/Library/Developer/Xcode/DerivedData" -name "$(RUN_APP_NAME).app" -type d | head -1) && \
 		if [ -n "$$APP_PATH" ]; then \
 			echo "Found app at: $$APP_PATH"; \
 			open "$$APP_PATH"; \
 		else \
-			echo "VoiceInk.app not found. Please run 'make build' or 'make local' first."; \
+			echo "$(RUN_APP_NAME).app not found. Build it with 'make local' or use 'make dev' for the development app."; \
 			exit 1; \
 		fi; \
 	fi
+
+# Build a signed, notarized DMG and matching local Sparkle Appcast.
+release: whisper
+	@if [ -n "$(NOTES)" ]; then \
+		./scripts/release.sh --notes "$(NOTES)" $(RELEASE_ARGS); \
+	else \
+		./scripts/release.sh $(RELEASE_ARGS); \
+	fi
+
+# Store Apple's notarization credentials securely in Keychain.
+release-setup:
+	@./scripts/setup-release-notarization.sh
 
 # Cleanup
 clean:
@@ -131,6 +150,8 @@ help:
 	@echo "  local-fast         Incremental build, sign, install, and launch"
 	@echo "  run                Launch the built VoiceInk app"
 	@echo "  dev                Build and run the app (for development)"
+	@echo "  release            Build DMG and Appcast using release-notes/<version>.html"
+	@echo "  release-setup      Store notarization credentials in Keychain"
 	@echo "  all                Run full build process (default)"
 	@echo "  clean              Remove build artifacts"
 	@echo "  help               Show this help message"

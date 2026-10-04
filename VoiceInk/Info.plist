@@ -14,6 +14,11 @@
 	<false/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>14400</integer>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VoiceInk needs access to your microphone to record audio for transcription.</string>
 	<key>NSAppleEventsUsageDescription</key>

@@ -436,8 +436,43 @@ struct TranscriptLanguageRecoveryTests {
             tried.append(language)
             return "Make PC the default video player"
         }
-        #expect(tried == ["auto", "de-DE"])
+        // Every Latin candidate is compared so the closest one wins.
+        #expect(tried == ["auto", "de-DE", "en-US"])
         #expect(result == "Make PC the default video player")
+    }
+
+    // Real decodes of 2026-10-04 09:14: English on the Bulgarian layout. Auto
+    // and forced German differ by one letter (`konteks` / `kontext`), which an
+    // exact comparison missed.
+    @Test func crossCheckAcceptsANearMatch() async {
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Компакт она стът креф мач контекст",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            switch language {
+            case "auto": return "Kompakt Oans that heft too much konteks"
+            case "de-DE": return "Kompakt Oans that heft too much kontext"
+            default: return "Kompac Oans that heft too much context"
+            }
+        }
+        #expect(result == "Kompakt Oans that heft too much kontext")
+    }
+
+    // Real decodes of 2026-08-09 17:19, which was Bulgarian. Similarity 0.14.
+    @Test func crossCheckIgnoresADistantMatch() async {
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "От 30",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            switch language {
+            case "auto": return "O 354"
+            case "en-US": return "O three"
+            default: return ""
+            }
+        }
+        #expect(result == "От 30")
     }
 
     @Test func crossCheckKeepsGenuineBulgarian() async {

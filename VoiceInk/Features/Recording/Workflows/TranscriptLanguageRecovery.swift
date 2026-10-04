@@ -238,9 +238,10 @@ enum TranscriptLanguageRecovery {
     /// cannot judge: Nemotron forced to Bulgarian writes English or German
     /// speech out in Cyrillic (`Мек ПСолд видеопла`), and the recogniser scores
     /// any Cyrillic as Bulgarian. Auto-detect is run once; only when it hears
-    /// Latin text that a forced Latin-keyboard language reproduces word for
-    /// word is the primary replaced. Genuine Bulgarian survives because auto's
-    /// romanisation (`Raboti` for `Работи`) never matches a forced decode.
+    /// Latin text that a forced Latin-keyboard language closely reproduces
+    /// (`crossCheckSimilarityThreshold`) is the primary replaced. Genuine
+    /// Bulgarian survives because auto's romanisation (`Raboti` for `Работи`)
+    /// is not close to any forced decode, which are usually empty for it.
     ///
     /// Measured 2026-10-03 over 134 real dictations with a Cyrillic primary:
     /// it fired 9 times, all 9 English or German recovered from Cyrillic noise
@@ -269,14 +270,20 @@ enum TranscriptLanguageRecovery {
             guard !auto.isEmpty, TranscriptLanguageValidator.scripts(in: auto) == ["Latin"]
             else { return nil }
 
+            var closest: (text: String, candidate: String, similarity: Double)?
             for candidate in latinCandidates {
                 let forced = try await retry(candidate)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !forced.isEmpty, comparable(forced) == comparable(auto) {
-                    logger.notice(
-                        "Auto-detect and forced \(candidate, privacy: .public) agree; replacing a Cyrillic primary")
-                    return forced
+                guard !forced.isEmpty else { continue }
+                let score = similarity(forced, auto)
+                if closest == nil || score > closest!.similarity {
+                    closest = (forced, candidate, score)
                 }
+            }
+            if let closest, closest.similarity >= crossCheckSimilarityThreshold {
+                logger.notice(
+                    "Auto-detect and forced \(closest.candidate, privacy: .public) agree (\(closest.similarity, privacy: .public)); replacing a Cyrillic primary")
+                return closest.text
             }
         } catch {
             logger.notice("Cross-check skipped: \(error.localizedDescription, privacy: .public)")
@@ -327,6 +334,36 @@ enum TranscriptLanguageRecovery {
         else { return false }
 
         return comparable(auto) != target
+    }
+
+    /// How close auto-detect and a forced decode must be for the cross-check to
+    /// trust them. Two decodes of the same English or German speech differ by a
+    /// letter here and there (`konteks` / `kontext`), so exact equality missed
+    /// real cases. Measured 2026-10-04 with `similarity` over every real
+    /// dictation where it could apply: English and German scored 0.74–1.00,
+    /// Bulgarian 0.14–0.15. Most Bulgarian never reaches the comparison,
+    /// because forced German and English return nothing for it.
+    private static let crossCheckSimilarityThreshold = 0.70
+
+    /// 1 minus the character edit distance over the longer length, after
+    /// `comparable`, so casing and punctuation do not count.
+    static func similarity(_ lhs: String, _ rhs: String) -> Double {
+        let a = Array(comparable(lhs)), b = Array(comparable(rhs))
+        let longest = max(a.count, b.count)
+        guard longest > 0 else { return 1 }
+        guard !a.isEmpty, !b.isEmpty else { return 0 }
+
+        var previous = Array(0...b.count)
+        for i in 1...a.count {
+            var current = [i] + Array(repeating: 0, count: b.count)
+            for j in 1...b.count {
+                current[j] = min(
+                    previous[j] + 1, current[j - 1] + 1,
+                    previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+            }
+            previous = current
+        }
+        return 1 - Double(previous[b.count]) / Double(longest)
     }
 
     /// Lowercased letters and single spaces only, so punctuation and casing

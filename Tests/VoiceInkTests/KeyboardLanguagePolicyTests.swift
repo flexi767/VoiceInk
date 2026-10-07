@@ -545,6 +545,24 @@ struct TranscriptLanguageRecoveryTests {
         #expect(result == "Make it thirty minutes")
     }
 
+    // Real decodes of 2026-10-05 11:11: English on the Bulgarian layout. Only
+    // the English retry validates, and auto differs from it only in a stray
+    // trailing letter, which an exact comparison read as a contradiction.
+    @Test func replacesARejectedCyrillicPrimaryWhenAutoNearlyAgrees() async {
+        let result = await TranscriptLanguageRecovery.selectTranscript(
+            primary: "Адъхалисту она тот уфи",
+            validationCandidates: ["bg-BG", "de-DE", "en-US"],
+            retryCandidates: ["de-DE", "en-US"]
+        ) { language in
+            switch language {
+            case "de-DE": return "Add the values to one total"
+            case "en-US": return "Add the values to one total fi"
+            default: return "Add the values to one total p"
+            }
+        }
+        #expect(result == "Add the values to one total fi")
+    }
+
     // 2026-10-02 09:58: only German heard words and auto heard nothing — no
     // contradiction, so the German retry stands.
     @Test func replacesARejectedCyrillicPrimaryWhenAutoHearsNothing() async {

@@ -299,7 +299,10 @@ enum TranscriptLanguageRecovery {
     /// retry then turned it into `Skaniere molition der Karta`. A cross-script
     /// replacement now needs to be uncontradicted: it stands when two forced
     /// languages produce it, or when auto-detect agrees or hears nothing, and
-    /// is refused when auto-detect heard something else.
+    /// is refused when auto-detect heard something else. "Agree" means the
+    /// cross-check's near-match: on 2026-10-05 11:11 auto added a stray letter
+    /// (`one total p` / `one total`, 0.93), and exact equality kept the
+    /// Bulgarian noise; the Bulgarian 18:41 case scores 0.52.
     ///
     /// Measured 2026-10-03 on the 16 real dictations whose Bulgarian decode is
     /// rejected: of the 7 replaced with Latin text, this keeps the one that was
@@ -323,8 +326,9 @@ enum TranscriptLanguageRecovery {
             !TranscriptLanguageValidator.scripts(in: replacement).contains(keyboardScript)
         else { return false }
 
-        let target = comparable(replacement)
-        let agreeing = probeTexts.filter { comparable($0) == target }.count
+        let agreeing = probeTexts.filter {
+            similarity($0, replacement) >= crossCheckSimilarityThreshold
+        }.count
         guard agreeing < 2 else { return false }
 
         guard
@@ -333,7 +337,7 @@ enum TranscriptLanguageRecovery {
             !auto.isEmpty
         else { return false }
 
-        return comparable(auto) != target
+        return similarity(auto, replacement) < crossCheckSimilarityThreshold
     }
 
     /// How close auto-detect and a forced decode must be for the cross-check to

@@ -14,6 +14,30 @@ enum CustomProviderRequestOptions {
     }
 }
 
+/// VoiceInk Refine served by an OpenAI-compatible server, as `voiceink-refine`
+/// on m3 (scrapeui X-4660), asked the way the local Refine engine asks it: the
+/// raw transcript under its trained instruction, thinking off. Measured on m3
+/// 2026-10-17: like that it cleaned a dictation in 0.8 s; with thinking on (the
+/// server's default) it wrote a "Thinking Process" for 2,048 tokens and never
+/// answered. A mode's general prompt and the `<TRANSCRIPT>` wrapper are not
+/// what it was trained on.
+enum RemoteRefineRequest {
+    static let servedModelName = "voiceink-refine"
+
+    static func applies(provider: AIProvider, modelName: String?) -> Bool {
+        provider == .custom
+            && modelName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == servedModelName
+    }
+
+    static func messages(for transcript: String) -> [ChatMessage] {
+        [.user(transcript)]
+    }
+
+    static var systemPrompt: String {
+        VoiceInkRefineService.systemPrompt
+    }
+}
+
 struct AIChatCompletionResult: Sendable {
     let text: String
     let openRouterCompletion: OpenRouterCompletion?

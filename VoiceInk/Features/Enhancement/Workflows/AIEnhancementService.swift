@@ -221,6 +221,24 @@ class AIEnhancementService: ObservableObject {
             }
         }
 
+        if RemoteRefineRequest.applies(provider: provider, modelName: configuration.modelName) {
+            let completion = try await aiService.performChatCompletion(
+                provider: provider,
+                modelName: configuration.modelName,
+                messages: RemoteRefineRequest.messages(for: text),
+                systemPrompt: RemoteRefineRequest.systemPrompt,
+                timeout: requestTimeout,
+                disablesThinking: true
+            )
+            let filteredResult = AIEnhancementOutputFilter.filter(
+                completion.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            guard !filteredResult.isEmpty else {
+                throw EnhancementError.enhancementFailed
+            }
+            return (filteredResult, nil, text)
+        }
+
         guard let prompt = configuration.prompt else {
             throw EnhancementError.notConfigured
         }

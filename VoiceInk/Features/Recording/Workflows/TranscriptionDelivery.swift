@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -47,7 +48,8 @@ final class TranscriptionDelivery {
         }
 
         if let text = request.text {
-            await paste(text, sendAfterPaste: request.sendAfterPaste, actions: actions)
+            let sendKey = request.sendAfterPaste ? FinishAndSendSettings.selectedKey : request.output.autoSendKey
+            await paste(text, sendKey: sendKey, actions: actions)
         } else {
             await actions.dismiss()
         }
@@ -162,26 +164,25 @@ final class TranscriptionDelivery {
         String(format: "%.3f", duration)
     }
 
-    private func paste(_ text: String, sendAfterPaste: Bool, actions: Actions) async {
+    private func paste(_ text: String, sendKey: FinishAndSendKey, actions: Actions) async {
         let textToPaste = deliverableText(from: text)
         let appendSpace = UserDefaults.standard.bool(forKey: "AppendTrailingSpace")
         let pastedText = textToPaste + (appendSpace ? " " : "")
+        actions.setState(.idle)
         SoundManager.shared.playStopSound()
         await actions.dismiss()
 
         let pasteTask = CursorPaster.startPasteAtCursor(pastedText)
 
-        let selectedKey = FinishAndSendSettings.selectedKey
-        let finishAndSendKey: FinishAndSendKey = sendAfterPaste ? selectedKey : .none
         Task { @MainActor in
             let pasteOutcome = await pasteTask.value
 
-            if finishAndSendKey.isEnabled && pasteOutcome.result.didPostPasteCommand {
+            if sendKey.isEnabled && pasteOutcome.result.didPostPasteCommand {
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 if let generation = pasteOutcome.autoLearnGeneration {
                     await AutoLearnService.shared.cancelForAutoSend(generation: generation)
                 }
-                CursorPaster.performSendKey(finishAndSendKey)
+                CursorPaster.performSendKey(sendKey)
             }
         }
     }

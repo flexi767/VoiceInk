@@ -394,6 +394,12 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                         }
                                     }
                                 } else if let fluidAudioModel = currentModel as? FluidAudioModel {
+                                    // Unified streaming does not need the offline encoder.
+                                    if transcriptionConfiguration.isRealtimeEnabled,
+                                        FluidAudioModelManager.isParakeetUnifiedModel(named: fluidAudioModel.name)
+                                    {
+                                        return
+                                    }
                                     try? await self.serviceRegistry.fluidAudioTranscriptionService.loadModel(
                                         for: fluidAudioModel)
                                 } else if let transcribeCppModel = currentModel as? TranscribeCppModel {
@@ -635,22 +641,23 @@ class VoiceInkEngine: NSObject, ObservableObject {
             )
         )
 
-        let didFinishActivePipeline = activePipelineTranscriptionID == transcriptionID
-        if didFinishActivePipeline {
-            await cleanupResources()
-            activePipelineTranscriptionID = nil
-            currentSession = nil
-            currentSessionTranscriptionConfiguration = nil
-            recordedFile = nil
-            shouldCancelRecording = false
-            activePipelineUseCase = .newSession
-            clearActiveRecordingContext()
+        defer {
+            canceledPipelineTranscriptionIDs.remove(transcriptionID)
         }
-        canceledPipelineTranscriptionIDs.remove(transcriptionID)
 
-        if didFinishActivePipeline
-            && (recordingState == .transcribing || recordingState == .enhancing || recordingState == .busy)
-        {
+        guard activePipelineTranscriptionID == transcriptionID else { return }
+        await cleanupResources()
+        guard activePipelineTranscriptionID == transcriptionID else { return }
+
+        activePipelineTranscriptionID = nil
+        currentSession = nil
+        currentSessionTranscriptionConfiguration = nil
+        recordedFile = nil
+        shouldCancelRecording = false
+        activePipelineUseCase = .newSession
+        clearActiveRecordingContext()
+
+        if recordingState == .transcribing || recordingState == .enhancing || recordingState == .busy {
             recordingState = .idle
         }
     }
@@ -861,9 +868,9 @@ class VoiceInkEngine: NSObject, ObservableObject {
         let preparationTask = voiceInkRefinePreparationTask
         voiceInkRefinePreparationTask = nil
         preparationTask?.cancel()
-        await preparationTask?.value
-
         enhancementService?.clearCapturedContexts()
+
+        await preparationTask?.value
         await enhancementService?
             .getAIService()?
             .voiceInkRefineService

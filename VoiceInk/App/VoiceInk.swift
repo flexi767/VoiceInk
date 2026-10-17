@@ -171,7 +171,8 @@ struct VoiceInkApp: App {
         let prewarmService = ModelPrewarmService(
             transcriptionModelManager: transcriptionModelManager,
             whisperModelManager: whisperModelManager,
-            modelContext: resolvedContainer.mainContext
+            modelContext: resolvedContainer.mainContext,
+            fluidAudioService: engine.serviceRegistry.fluidAudioTranscriptionService
         )
         _prewarmService = StateObject(wrappedValue: prewarmService)
 

@@ -30,6 +30,20 @@ enum AutoLearnSettings {
     static let failureMessageKey = "AutoLearnDictionaryFailureMessage"
     static let failureAcknowledgedKey = "AutoLearnDictionaryFailureAcknowledged"
     static let reviewScheduleKey = "AutoLearnDictionaryReviewSchedule"
+    static let requestTimeoutKey = "AutoLearnRequestTimeoutSeconds"
+
+    /// Reviews run in the background after the user has finished editing, so
+    /// nothing waits on them, unlike enhancement, which a dictation does. A
+    /// shared local server can hold a review well past enhancement's seconds:
+    /// M3's chat gate queues a priority caller for up to 300 s behind a
+    /// running request (scrapeui X-4622), and the review itself took 32 s
+    /// there on 2026-10-17.
+    static let defaultRequestTimeoutSeconds = 330
+
+    static var requestTimeout: TimeInterval {
+        let stored = UserDefaults.standard.integer(forKey: requestTimeoutKey)
+        return TimeInterval(stored > 0 ? stored : defaultRequestTimeoutSeconds)
+    }
 
     static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: isEnabledKey)

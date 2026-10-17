@@ -1,6 +1,19 @@
 import Foundation
 import LLMkit
 
+enum CustomProviderRequestOptions {
+    /// Asks an OpenAI-compatible server to skip a hybrid model's thinking
+    /// phase. `chat_template_kwargs` is how vLLM, SGLang and
+    /// mlx-openai-server pass options to the chat template, and Qwen3's
+    /// template reads `enable_thinking`. On 2026-10-17 qwen3-4b spent an
+    /// Auto Learn review's whole 2,048-token budget thinking and never wrote
+    /// the JSON. A strict server may reject the unknown field, so only Auto
+    /// Learn sends it.
+    static var thinkingDisabledExtraBody: [String: Any] {
+        ["chat_template_kwargs": ["enable_thinking": false]]
+    }
+}
+
 struct AIChatCompletionResult: Sendable {
     let text: String
     let openRouterCompletion: OpenRouterCompletion?
@@ -13,7 +26,8 @@ extension AIService {
         messages: [ChatMessage],
         systemPrompt: String? = nil,
         localUserPrompt: String? = nil,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
+        disablesThinking: Bool = false
     ) async throws -> AIChatCompletionResult {
         let resolvedModel = modelName?.isEmpty == false ? modelName! : selectedModel(for: provider)
 
@@ -75,6 +89,7 @@ extension AIService {
                 messages: messages,
                 systemPrompt: systemPrompt,
                 temperature: 0.3,
+                extraBody: disablesThinking ? CustomProviderRequestOptions.thinkingDisabledExtraBody : nil,
                 timeout: timeout
             )
         case .voiceInkRefine:

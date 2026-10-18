@@ -74,7 +74,7 @@ class CursorPaster {
             && UserDefaults.standard.bool(forKey: "restoreClipboardAfterPaste")
         let savedContents: ClipboardSnapshot
         if let pasteboard {
-            savedContents = shouldRestoreClipboard ? snapshotClipboard(from: pasteboard) : []
+            savedContents = shouldRestoreClipboard ? snapshotUserClipboard(from: pasteboard) : []
 
             guard
                 ClipboardManager.setClipboard(
@@ -124,6 +124,33 @@ class CursorPaster {
             PasteOutcome(result: pasteResult, autoLearnGeneration: autoLearnGeneration),
             clipboardRestoreTask
         )
+    }
+
+    /// The last clipboard that actually belonged to the user, as opposed to one
+    /// of our own paste sessions.
+    @MainActor private static var lastUserClipboard: ClipboardSnapshot = []
+
+    /// Snapshot of the user's clipboard, skipping a pasteboard VoiceInk still owns.
+    ///
+    /// Two dictations closer together than the restore delay would otherwise
+    /// lose the clipboard permanently: the second session snapshots while the
+    /// first transcript is still on the pasteboard, the first session's restore
+    /// then correctly declines (the pasteboard is no longer its own), and the
+    /// second faithfully restores *the first transcript*. The user's real
+    /// clipboard is never written back by anyone.
+    ///
+    /// Recognising our own session marker and carrying the earlier snapshot
+    /// forward makes the restore survive any number of back-to-back dictations.
+    @MainActor
+    private static func snapshotUserClipboard(from pasteboard: NSPasteboard) -> ClipboardSnapshot {
+        guard pasteboard.string(forType: ClipboardManager.pasteSessionType) == nil else {
+            logger.notice("Clipboard still holds a VoiceInk paste session; keeping the earlier snapshot")
+            return lastUserClipboard
+        }
+
+        let snapshot = snapshotClipboard(from: pasteboard)
+        lastUserClipboard = snapshot
+        return snapshot
     }
 
     private static func snapshotClipboard(from pasteboard: NSPasteboard) -> ClipboardSnapshot {

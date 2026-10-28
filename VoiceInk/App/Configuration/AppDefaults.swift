@@ -22,114 +22,6 @@ enum CloudTranscriptionSettings {
     }
 }
 
-enum AutoLearnSettings {
-    static let isEnabledKey = "IsAutoLearnDictionaryEnabled"
-    static let providerKey = "AutoLearnDictionaryProvider"
-    static let modelKey = "AutoLearnDictionaryModel"
-    static let hasFailureKey = "AutoLearnDictionaryHasFailure"
-    static let failureMessageKey = "AutoLearnDictionaryFailureMessage"
-    static let failureAcknowledgedKey = "AutoLearnDictionaryFailureAcknowledged"
-    static let reviewScheduleKey = "AutoLearnDictionaryReviewSchedule"
-    static let requestTimeoutKey = "AutoLearnRequestTimeoutSeconds"
-
-    /// Reviews run in the background after the user has finished editing, so
-    /// nothing waits on them, unlike enhancement, which a dictation does. A
-    /// shared local server can hold a review well past enhancement's seconds:
-    /// M3's chat gate queues a priority caller for up to 300 s behind a
-    /// running request (scrapeui X-4622), and the review itself took 32 s
-    /// there on 2026-10-17.
-    static let defaultRequestTimeoutSeconds = 330
-
-    static var requestTimeout: TimeInterval {
-        let stored = UserDefaults.standard.integer(forKey: requestTimeoutKey)
-        return TimeInterval(stored > 0 ? stored : defaultRequestTimeoutSeconds)
-    }
-
-    static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: isEnabledKey)
-    }
-
-    static var selectedProvider: AIProvider? {
-        guard let value = UserDefaults.standard.string(forKey: providerKey) else { return nil }
-        return AIProvider(rawValue: value)
-    }
-
-    static var selectedModel: String? {
-        let value = UserDefaults.standard.string(forKey: modelKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return value?.isEmpty == false ? value : nil
-    }
-
-    static var reviewSchedule: AutoLearnReviewSchedule {
-        guard let value = UserDefaults.standard.string(forKey: reviewScheduleKey) else {
-            return .immediately
-        }
-        return AutoLearnReviewSchedule(rawValue: value) ?? .immediately
-    }
-
-    /// Adopts the first configured enhancement provider for Auto Learn.
-    /// Once a Dictionary selection exists, provider configuration changes do not replace it.
-    static func initializeSelectionIfNeeded(
-        provider: AIProvider,
-        model: String,
-        defaults: UserDefaults = .standard
-    ) {
-        if let storedProvider = defaults.string(forKey: providerKey),
-            let provider = AIProvider(rawValue: storedProvider),
-            AutoLearnProviderPolicy.isSupported(provider)
-        {
-            return
-        }
-
-        guard AutoLearnProviderPolicy.isSupported(provider) else { return }
-
-        defaults.set(provider.rawValue, forKey: providerKey)
-        let selectedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if selectedModel.isEmpty {
-            defaults.removeObject(forKey: modelKey)
-        } else {
-            defaults.set(selectedModel, forKey: modelKey)
-        }
-    }
-
-    static func recordFailure(_ error: Error) {
-        let nsError = error as NSError
-        var details = [nsError.localizedDescription]
-        if let reason = nsError.localizedFailureReason,
-            !reason.isEmpty,
-            !details.contains(reason)
-        {
-            details.append(reason)
-        }
-        if let suggestion = nsError.localizedRecoverySuggestion,
-            !suggestion.isEmpty,
-            !details.contains(suggestion)
-        {
-            details.append(suggestion)
-        }
-        let message = details
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        UserDefaults.standard.set(
-            message.isEmpty ? "The selected provider or model could not review corrections." : message,
-            forKey: failureMessageKey
-        )
-        UserDefaults.standard.set(false, forKey: failureAcknowledgedKey)
-        UserDefaults.standard.set(true, forKey: hasFailureKey)
-    }
-
-    static func clearFailure() {
-        UserDefaults.standard.set(false, forKey: hasFailureKey)
-        UserDefaults.standard.removeObject(forKey: failureMessageKey)
-        UserDefaults.standard.removeObject(forKey: failureAcknowledgedKey)
-    }
-
-    static func acknowledgeCurrentFailure(defaults: UserDefaults = .standard) {
-        defaults.set(true, forKey: failureAcknowledgedKey)
-    }
-}
-
 enum OnboardingSettings {
     static let completedV2Key = "hasCompletedOnboardingV2"
     static let preparedV2Key = "hasPreparedOnboardingV2"
@@ -137,6 +29,7 @@ enum OnboardingSettings {
 
 enum AppDefaults {
     static func registerDefaults() {
+        AutoLearnSettings.registerDefaults()
         UserDefaults.standard.register(defaults: [
             // Onboarding & General
             OnboardingSettings.completedV2Key: false,
@@ -151,6 +44,7 @@ enum AppDefaults {
             // than a second copy of the transcript. At 2s that reach for Cmd+V
             // reliably pasted the transcript again.
             "clipboardRestoreDelay": 0.5,
+            SmartPunctuation.settingsKey: false,
             "useAppleScriptPaste": false,
 
             // Audio & Media
@@ -170,8 +64,6 @@ enum AppDefaults {
             "RecorderType": "mini",
             RecorderDisplaySettingsKeys.showLiveTranscript: true,
             CloudTranscriptionSettings.timeoutKey: CloudTranscriptionSettings.defaultTimeout,
-            AutoLearnSettings.isEnabledKey: true,
-            AutoLearnSettings.reviewScheduleKey: AutoLearnReviewSchedule.immediately.rawValue,
 
             // Cleanup
             CleanupSettingsKeys.isTranscriptionCleanupEnabled: false,

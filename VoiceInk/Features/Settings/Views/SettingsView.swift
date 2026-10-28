@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("restoreClipboardAfterPaste") private var restoreClipboardAfterPaste = true
     // Keep in step with AppDefaults.registerDefaults().
     @AppStorage("clipboardRestoreDelay") private var clipboardRestoreDelay = 0.5
+    @AppStorage(SmartPunctuation.settingsKey) private var smartPunctuationEnabled = false
     @AppStorage(PasteMethod.userDefaultsKey) private var pasteMethodRawValue = PasteMethod.standard.rawValue
     @AppStorage(AppAppearancePreference.userDefaultsKey) private var appAppearancePreference = AppAppearancePreference
         .system
@@ -164,6 +165,13 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(pasteMethodRawValue == PasteMethod.directTyping.rawValue)
+
+                Toggle(isOn: $smartPunctuationEnabled) {
+                    HStack(spacing: 4) {
+                        Text("Smart Punctuation")
+                        InfoTip(LocalizedStringKey("Adjust capitalization, punctuation, and spacing to fit the surrounding text when pasting. If context is unavailable, your text is pasted unchanged."))
+                    }
+                }
 
                 Picker(selection: $pasteMethodRawValue) {
                     ForEach(PasteMethod.allCases) { method in

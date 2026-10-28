@@ -5,10 +5,9 @@ enum CustomProviderRequestOptions {
     /// Asks an OpenAI-compatible server to skip a hybrid model's thinking
     /// phase. `chat_template_kwargs` is how vLLM, SGLang and
     /// mlx-openai-server pass options to the chat template, and Qwen3's
-    /// template reads `enable_thinking`. On 2026-10-17 qwen3-4b spent an
-    /// Auto Learn review's whole 2,048-token budget thinking and never wrote
-    /// the JSON. A strict server may reject the unknown field, so only Auto
-    /// Learn sends it.
+    /// template reads `enable_thinking`; mlx-openai-server defaults it to
+    /// true. A strict server may reject the unknown field, so only
+    /// `RemoteRefineRequest` sends it.
     static var thinkingDisabledExtraBody: [String: Any] {
         ["chat_template_kwargs": ["enable_thinking": false]]
     }

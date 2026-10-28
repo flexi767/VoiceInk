@@ -28,4 +28,10 @@ struct RemoteRefineRequestTests {
         #expect(messages.map(\.content) == [transcript])
         #expect(RemoteRefineRequest.systemPrompt == VoiceInkRefineService.systemPrompt)
     }
+
+    @Test func switchesThinkingOffThroughTheChatTemplate() throws {
+        let body = CustomProviderRequestOptions.thinkingDisabledExtraBody
+        let kwargs = try #require(body["chat_template_kwargs"] as? [String: Bool])
+        #expect(kwargs == ["enable_thinking": false])
+    }
 }

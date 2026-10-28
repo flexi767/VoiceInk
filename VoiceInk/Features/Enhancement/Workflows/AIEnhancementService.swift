@@ -28,7 +28,6 @@ class AIEnhancementService: ObservableObject {
 
     private let aiService: AIService
     private let screenCaptureService: ScreenCaptureService
-    private let customVocabularyService: CustomVocabularyService
     private var requestTimeout: TimeInterval {
         EnhancementRequestSettings.timeout
     }
@@ -42,7 +41,6 @@ class AIEnhancementService: ObservableObject {
         self.aiService = aiService
         self.modelContext = modelContext
         self.screenCaptureService = ScreenCaptureService()
-        self.customVocabularyService = CustomVocabularyService.shared
 
         if let savedPromptsData = UserDefaults.standard.data(forKey: "customPrompts"),
             let decodedPrompts = try? JSONDecoder().decode([CustomPrompt].self, from: savedPromptsData)
@@ -110,8 +108,9 @@ class AIEnhancementService: ObservableObject {
     private func getSystemMessage(
         prompt: CustomPrompt,
         configuration: EnhancementRuntimeConfiguration,
-        contextSnapshot: RecordingContextSnapshot?
-    ) async -> String {
+        contextSnapshot: RecordingContextSnapshot?,
+        vocabulary: RecordingVocabulary
+    ) -> String {
         let useSelectedText = configuration.useSelectedTextContext
         let useClipboard = configuration.useClipboardContext
         let useScreenCapture = configuration.useScreenCaptureContext
@@ -149,20 +148,7 @@ class AIEnhancementService: ObservableObject {
                 ""
             }
 
-        let customVocabulary = customVocabularyService.getCustomVocabulary(from: modelContext)
-
-        let customVocabularySection =
-            if !customVocabulary.isEmpty {
-                """
-                # Custom Vocabulary
-                Use these custom vocabulary words, proper nouns, acronyms, product names, and technical terms as the spelling authority. When the text clearly refers to one of these entries, replace similar-sounding or phonetically close transcription mistakes with the exact spelling shown below. Do not force a replacement when the text clearly means something else:
-                <CUSTOM_VOCABULARY>
-                \(customVocabulary)
-                </CUSTOM_VOCABULARY>
-                """
-            } else {
-                ""
-            }
+        let customVocabularySection = vocabulary.enhancementSection
 
         let contextBlocks = [selectedTextContext, clipboardContext, screenCaptureContext]
             .filter { !$0.isEmpty }
@@ -186,7 +172,8 @@ class AIEnhancementService: ObservableObject {
     private func makeRequest(
         text: String,
         configuration: EnhancementRuntimeConfiguration,
-        contextSnapshot: RecordingContextSnapshot?
+        contextSnapshot: RecordingContextSnapshot?,
+        vocabulary: RecordingVocabulary
     ) async throws -> (text: String, systemMessage: String?, userMessage: String?) {
         guard isConfigured(for: configuration) else {
             throw EnhancementError.notConfigured
@@ -202,7 +189,7 @@ class AIEnhancementService: ObservableObject {
 
         if provider == .voiceInkRefine {
             do {
-                let result = try await aiService.enhanceWithVoiceInkRefine(transcript: text)
+                let result = try await aiService.enhanceWithVoiceInkRefine(transcript: text, vocabulary: vocabulary)
                 let filteredResult = AIEnhancementOutputFilter.filter(
                     result.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
@@ -245,10 +232,11 @@ class AIEnhancementService: ObservableObject {
 
         let modelName = configuration.modelName ?? provider.defaultModel
         let formattedText = "\n<TRANSCRIPT>\n\(text)\n</TRANSCRIPT>"
-        let systemMessage = await getSystemMessage(
+        let systemMessage = getSystemMessage(
             prompt: prompt,
             configuration: configuration,
-            contextSnapshot: contextSnapshot
+            contextSnapshot: contextSnapshot,
+            vocabulary: vocabulary
         )
 
         if provider != .openRouter, provider != .ollama, provider != .localCLI {
@@ -336,6 +324,7 @@ class AIEnhancementService: ObservableObject {
         text: String,
         configuration: EnhancementRuntimeConfiguration,
         contextSnapshot: RecordingContextSnapshot?,
+        vocabulary: RecordingVocabulary,
         maxAttempts: Int = EnhancementRequestSettings.maximumAttempts,
         initialDelay: TimeInterval = 1.0
     ) async throws -> (text: String, systemMessage: String?, userMessage: String?) {
@@ -347,7 +336,8 @@ class AIEnhancementService: ObservableObject {
                 return try await makeRequest(
                     text: text,
                     configuration: configuration,
-                    contextSnapshot: contextSnapshot
+                    contextSnapshot: contextSnapshot,
+                    vocabulary: vocabulary
                 )
             } catch let error as EnhancementError {
                 switch error {
@@ -410,8 +400,10 @@ class AIEnhancementService: ObservableObject {
     func enhance(
         _ text: String,
         configuration: EnhancementRuntimeConfiguration,
-        contextSnapshot: RecordingContextSnapshot? = nil
+        contextSnapshot: RecordingContextSnapshot? = nil,
+        vocabulary: RecordingVocabulary? = nil
     ) async throws -> AIEnhancementResult {
+        let preparedVocabulary = vocabulary ?? CustomVocabularyService.shared.loadSavedVocabulary(from: modelContext)
         let startTime = Date()
         let promptName = configuration.prompt?.title
 
@@ -420,6 +412,7 @@ class AIEnhancementService: ObservableObject {
                 text: text,
                 configuration: configuration,
                 contextSnapshot: contextSnapshot,
+                vocabulary: preparedVocabulary,
                 maxAttempts: EnhancementRequestSettings.maximumAttempts
             )
             let endTime = Date()

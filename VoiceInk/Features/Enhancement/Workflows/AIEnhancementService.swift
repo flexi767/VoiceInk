@@ -272,7 +272,7 @@ class AIEnhancementService: ObservableObject {
                 formattedText
             )
         } catch let error as LLMKitError {
-            throw mapLLMKitError(error)
+            throw EnhancementError(error)
         } catch let error as LocalAIError {
             if case .timeout = error {
                 throw EnhancementError.timeout
@@ -294,28 +294,6 @@ class AIEnhancementService: ObservableObject {
         }
     }
 
-    private func mapLLMKitError(_ error: LLMKitError) -> EnhancementError {
-        switch error {
-        case .missingAPIKey:
-            return .notConfigured
-        case .httpError(let statusCode, let message):
-            if statusCode == 429 { return .rateLimitExceeded }
-            if statusCode == 408 { return .timeout }
-            if (500...599).contains(statusCode) { return .serverError }
-            return .customError("HTTP \(statusCode): \(message)")
-        case .noResultReturned:
-            return .enhancementFailed
-        case .networkError:
-            return .networkError
-        case .timeout:
-            return .timeout
-        case .invalidURL, .decodingError, .encodingError:
-            return .customError(error.localizedDescription)
-        case .unsupportedModel(let model):
-            return .customError("Unsupported model: \(model)")
-        }
-    }
-
     private var retryOnTimeout: Bool {
         EnhancementRequestSettings.retryOnTimeout
     }
@@ -328,73 +306,20 @@ class AIEnhancementService: ObservableObject {
         maxAttempts: Int = EnhancementRequestSettings.maximumAttempts,
         initialDelay: TimeInterval = 1.0
     ) async throws -> (text: String, systemMessage: String?, userMessage: String?) {
-        var retries = 0
-        var currentDelay = initialDelay
-
-        while retries < maxAttempts {
-            do {
-                return try await makeRequest(
-                    text: text,
-                    configuration: configuration,
-                    contextSnapshot: contextSnapshot,
-                    vocabulary: vocabulary
-                )
-            } catch let error as EnhancementError {
-                switch error {
-                case .networkError, .serverError, .rateLimitExceeded:
-                    retries += 1
-                    if retries < maxAttempts {
-                        logger.warning(
-                            "Request failed, retrying in \(currentDelay, privacy: .public)s... (Attempt \(retries, privacy: .public)/\(maxAttempts, privacy: .public))"
-                        )
-                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2
-                    } else {
-                        logger.error("Request failed after \(maxAttempts, privacy: .public) attempts.")
-                        throw error
-                    }
-                case .timeout:
-                    if retryOnTimeout {
-                        retries += 1
-                        if retries < maxAttempts {
-                            logger.warning(
-                                "Request timed out, retrying immediately... (Attempt \(retries, privacy: .public)/\(maxAttempts, privacy: .public))"
-                            )
-                        } else {
-                            logger.error("Request timed out after \(maxAttempts, privacy: .public) attempts.")
-                            throw error
-                        }
-                    } else {
-                        logger.error("Request timed out, failing immediately (retry disabled).")
-                        throw error
-                    }
-                default:
-                    throw error
-                }
-            } catch {
-                let nsError = error as NSError
-                if nsError.domain == NSURLErrorDomain
-                    && [NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost].contains(
-                        nsError.code)
-                {
-                    retries += 1
-                    if retries < maxAttempts {
-                        logger.warning(
-                            "Request failed with network error, retrying in \(currentDelay, privacy: .public)s... (Attempt \(retries, privacy: .public)/\(maxAttempts, privacy: .public))"
-                        )
-                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2
-                    } else {
-                        logger.error("Request failed after \(maxAttempts, privacy: .public) attempts with network error.")
-                        throw EnhancementError.networkError
-                    }
-                } else {
-                    throw error
-                }
-            }
+        let loop = EnhancementRetryLoop(
+            provider: configuration.provider,
+            retryOnTimeout: retryOnTimeout,
+            maxAttempts: maxAttempts,
+            initialDelay: initialDelay
+        )
+        return try await loop.run {
+            try await makeRequest(
+                text: text,
+                configuration: configuration,
+                contextSnapshot: contextSnapshot,
+                vocabulary: vocabulary
+            )
         }
-
-        throw EnhancementError.enhancementFailed
     }
 
     func enhance(

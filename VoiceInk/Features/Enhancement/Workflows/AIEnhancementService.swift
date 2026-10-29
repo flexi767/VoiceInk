@@ -209,14 +209,19 @@ class AIEnhancementService: ObservableObject {
         }
 
         if RemoteRefineRequest.applies(provider: provider, modelName: configuration.modelName) {
-            let completion = try await aiService.performChatCompletion(
-                provider: provider,
-                modelName: configuration.modelName,
-                messages: RemoteRefineRequest.messages(for: text),
-                systemPrompt: RemoteRefineRequest.systemPrompt,
-                timeout: requestTimeout,
-                disablesThinking: true
-            )
+            let completion: AIChatCompletionResult
+            do {
+                completion = try await aiService.performChatCompletion(
+                    provider: provider,
+                    modelName: configuration.modelName,
+                    messages: RemoteRefineRequest.messages(for: text),
+                    systemPrompt: RemoteRefineRequest.systemPrompt,
+                    timeout: requestTimeout,
+                    disablesThinking: true
+                )
+            } catch let error as LLMKitError {
+                throw EnhancementError(error)
+            }
             let filteredResult = AIEnhancementOutputFilter.filter(
                 completion.text.trimmingCharacters(in: .whitespacesAndNewlines)
             )

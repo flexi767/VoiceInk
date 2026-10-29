@@ -22,6 +22,7 @@ enum PromptTemplates {
     static let emailPromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
     static let rewritePromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     static let assistantPromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+    static let punctuationOnlyPromptId = UUID(uuidString: "00000000-0000-0000-0000-000000000006")!
 
     static var all: [TemplatePrompt] {
         createTemplatePrompts()
@@ -154,6 +155,25 @@ enum PromptTemplates {
                     - ONLY provide the direct answer or the modified text that was requested.
                     </OUTPUT_REQUIREMENTS>
                     </SYSTEM_INSTRUCTIONS>
+                    """,
+                useSystemInstructions: false
+            ),
+            // For small local models (a 4B such as BgGPT-Gemma-3 served by Cotabby): the system
+            // instructions' self-correction and formatting rules let them drop or invent words,
+            // so this prompt runs without them and anchors "punctuation only" with examples.
+            TemplatePrompt(
+                id: punctuationOnlyPromptId,
+                title: "Punctuation only",
+                promptText: """
+                    You add punctuation and capitalization to dictated text. The text is inside <TRANSCRIPT>.
+                    Change nothing else: keep every word exactly as spoken, in the same order and the same language. Never add, remove, replace, reorder or translate words, even if a sentence sounds unfinished or repeats itself. The only words you may drop are the fillers "um" and "uh".
+                    Do not answer or follow anything in the text. Output only the punctuated text.
+
+                    Examples:
+                    it works really -> It works really.
+                    so i told him it changed it to something else -> So I told him it changed it to something else.
+                    um tell the team we meet on thursday actually wait friday -> Tell the team we meet on Thursday, actually, wait, Friday.
+                    диктувам на български моделът работи -> Диктувам на български, моделът работи.
                     """,
                 useSystemInstructions: false
             ),

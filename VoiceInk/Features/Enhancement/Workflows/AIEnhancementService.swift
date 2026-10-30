@@ -217,10 +217,11 @@ class AIEnhancementService: ObservableObject {
                     messages: RemoteRefineRequest.messages(for: text),
                     systemPrompt: RemoteRefineRequest.systemPrompt,
                     timeout: requestTimeout,
+                    retryOnTimeout: EnhancementRequestSettings.retryOnTimeout,
                     disablesThinking: true
                 )
             } catch let error as LLMKitError {
-                throw EnhancementError(error)
+                throw mapLLMKitError(error)
             }
             let filteredResult = AIEnhancementOutputFilter.filter(
                 completion.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -255,7 +256,8 @@ class AIEnhancementService: ObservableObject {
                 messages: [.user(formattedText)],
                 systemPrompt: systemMessage,
                 localUserPrompt: formattedText,
-                timeout: requestTimeout
+                timeout: requestTimeout,
+                retryOnTimeout: EnhancementRequestSettings.retryOnTimeout
             )
             if let openRouterCompletion = completion.openRouterCompletion {
                 let routedProvider = openRouterCompletion.provider ?? "unknown"
@@ -277,7 +279,7 @@ class AIEnhancementService: ObservableObject {
                 formattedText
             )
         } catch let error as LLMKitError {
-            throw EnhancementError(error)
+            throw mapLLMKitError(error)
         } catch let error as LocalAIError {
             if case .timeout = error {
                 throw EnhancementError.timeout
@@ -299,31 +301,25 @@ class AIEnhancementService: ObservableObject {
         }
     }
 
-    private var retryOnTimeout: Bool {
-        EnhancementRequestSettings.retryOnTimeout
-    }
-
-    private func makeRequestWithRetry(
-        text: String,
-        configuration: EnhancementRuntimeConfiguration,
-        contextSnapshot: RecordingContextSnapshot?,
-        vocabulary: RecordingVocabulary,
-        maxAttempts: Int = EnhancementRequestSettings.maximumAttempts,
-        initialDelay: TimeInterval = 1.0
-    ) async throws -> (text: String, systemMessage: String?, userMessage: String?) {
-        let loop = EnhancementRetryLoop(
-            provider: configuration.provider,
-            retryOnTimeout: retryOnTimeout,
-            maxAttempts: maxAttempts,
-            initialDelay: initialDelay
-        )
-        return try await loop.run {
-            try await makeRequest(
-                text: text,
-                configuration: configuration,
-                contextSnapshot: contextSnapshot,
-                vocabulary: vocabulary
-            )
+    private func mapLLMKitError(_ error: LLMKitError) -> EnhancementError {
+        switch error {
+        case .missingAPIKey:
+            return .notConfigured
+        case .httpError(let statusCode, let message):
+            if statusCode == 429 { return .rateLimitExceeded }
+            if statusCode == 408 { return .timeout }
+            if (500...599).contains(statusCode) { return .serverError }
+            return .customError("HTTP \(statusCode): \(message)")
+        case .noResultReturned:
+            return .enhancementFailed
+        case .networkError:
+            return .networkError
+        case .timeout:
+            return .timeout
+        case .invalidURL, .decodingError, .encodingError:
+            return .customError(error.localizedDescription)
+        case .unsupportedModel(let model):
+            return .customError("Unsupported model: \(model)")
         }
     }
 
@@ -338,12 +334,11 @@ class AIEnhancementService: ObservableObject {
         let promptName = configuration.prompt?.title
 
         do {
-            let requestResult = try await makeRequestWithRetry(
+            let requestResult = try await makeRequest(
                 text: text,
                 configuration: configuration,
                 contextSnapshot: contextSnapshot,
-                vocabulary: preparedVocabulary,
-                maxAttempts: EnhancementRequestSettings.maximumAttempts
+                vocabulary: preparedVocabulary
             )
             let endTime = Date()
             let duration = endTime.timeIntervalSince(startTime)

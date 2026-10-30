@@ -39,6 +39,7 @@ Local builds do not include iCloud dictionary sync or automatic updates. Ad-hoc 
 - `make whisper` — prepare `whisper.xcframework`
 - `make build` — build the standard Debug configuration
 - `make dev` — build and launch `VoiceInk Dev.app`
+- `make test` — run the unit tests in a locally signed host (`ONLY=VoiceInkTests/<Suite>` to narrow)
 - `make run` — launch `~/Downloads/VoiceInk.app`, or the first app found in DerivedData
 - `make release` — create the signed release package
 - `make release-setup` — configure release notarization credentials

@@ -9,7 +9,7 @@ LOCAL_DEVELOPMENT_TEAM := NKW2BHRJH2
 LOCAL_APP_PATH := /Applications/VoiceInk.app
 RUN_APP_NAME ?= VoiceInk
 
-.PHONY: all clean whisper setup build local local-fast check healthcheck help dev run release release-setup
+.PHONY: all clean whisper setup build local local-fast test check healthcheck help dev run release release-setup
 
 # Default target
 all: check build
@@ -104,6 +104,30 @@ local-fast: check setup
 		exit 1; \
 	fi
 
+# Run the unit tests. They are hosted in the app, so the host is built the way
+# `make local` builds it: signed with the local certificate and the local
+# entitlements, with LOCAL_BUILD set. An unsigned or Release host without
+# LOCAL_BUILD sets up iCloud dictionary sync and traps in CloudKit for want of
+# the iCloud entitlement. Does not install anything; `ONLY=VoiceInkTests/<Suite>`
+# narrows the run.
+test: check setup
+	@security find-identity -v -p codesigning | grep -q "$(LOCAL_SIGNING_CERT_SHA1)" || { \
+		echo "Required signing certificate is unavailable: $(LOCAL_SIGNING_IDENTITY)"; \
+		exit 1; \
+	}
+	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Release \
+		-derivedDataPath "$(LOCAL_DERIVED_DATA)" \
+		-xcconfig LocalBuild.xcconfig \
+		CODE_SIGNING_REQUIRED=YES \
+		CODE_SIGNING_ALLOWED=YES \
+		CODE_SIGN_ENTITLEMENTS="$(CURDIR)/VoiceInk/VoiceInk.local.entitlements" \
+		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$$(inherited) LOCAL_BUILD' \
+		ENABLE_TESTABILITY=YES \
+		-skipPackagePluginValidation \
+		-skipMacroValidation \
+		$(if $(ONLY),-only-testing:$(ONLY)) \
+		test
+
 # Run application
 # `make run` opens the installed app; `make dev` sets RUN_APP_NAME to the
 # separate "VoiceInk Dev" build and must never open the production install.
@@ -148,6 +172,7 @@ help:
 	@echo "  whisper            Clone and build whisper.cpp XCFramework"
 	@echo "  setup              Copy whisper XCFramework to VoiceInk project"
 	@echo "  build              Build the VoiceInk Xcode project"
+	@echo "  test               Run the unit tests (ONLY=VoiceInkTests/<Suite> to narrow)"
 	@echo "  local              Clean build, sign, install, and launch the local app"
 	@echo "  local-fast         Incremental build, sign, install, and launch"
 	@echo "  run                Launch the built VoiceInk app"

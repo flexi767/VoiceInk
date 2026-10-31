@@ -148,3 +148,19 @@ These were applied to the installed app's settings, separate from code:
 2. Build + sign + install (see build/signing section).
 3. Set the mode: transcription `ggml-large-v3-turbo`, language `auto`, realtime off; keep the
    MateView mic. Grant Accessibility after install.
+
+---
+
+## Cut-off streaming transcripts (2026-11-01)
+
+Nemotron streaming commits only what it has finished when the key is released.
+On quiet audio that can be the first word: `Ich` from 3.2 s of a full German
+sentence. Over 389 saved Nemotron dictations of 2 s or more, 16 came out under
+2 characters per second.
+
+`TranscriptTruncationDetector` flags a streamed transcript with fewer than 2
+letters per second on a recording of 2 s or more. The pipeline then re-decodes
+the retained audio in one batch pass (same model, language and vocabulary) and
+keeps the retry only when it has more letters. It runs before wrong-language
+recovery and needs no setting. Empty transcripts are left to wrong-language
+recovery, which probes the other keyboard languages.

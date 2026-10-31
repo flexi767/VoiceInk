@@ -171,3 +171,17 @@ Branch `feat/bulgarian-whisper-routing`, on top of `main` `729817b0`.
   itself broken and, against a merely misspelled primary, is ≥25 points better
   spelled. History records the model whose text was kept. Only active while an
   override is configured.
+
+## Cut-off streaming transcripts (2026-11-01)
+
+Nemotron streaming commits only what it has finished when the key is released.
+On quiet audio that can be the first word: `Ich` from 3.2 s of a full German
+sentence. Over 389 saved Nemotron dictations of 2 s or more, 16 came out under
+2 characters per second.
+
+`TranscriptTruncationDetector` flags a streamed transcript with fewer than 2
+letters per second on a recording of 2 s or more. The pipeline then re-decodes
+the retained audio in one batch pass (same model, language and vocabulary) and
+keeps the retry only when it has more letters. It runs before wrong-language
+recovery and needs no setting. Empty transcripts are left to wrong-language
+recovery, which probes the other keyboard languages.

@@ -59,6 +59,41 @@ class TranscriptionPipeline {
         }
     }
 
+    /// Re-decodes the retained audio in one batch pass, same model and language,
+    /// when a streaming transcript is too short for its recording. Returns the
+    /// streamed text unless the retry carries more of the speech.
+    private func recoverTruncatedStream(
+        _ text: String,
+        audioURL: URL,
+        model: any TranscriptionModel,
+        context: TranscriptionRequestContext,
+        shouldCancel: () -> Bool
+    ) async -> String {
+        let duration = await AudioFileMetadata.duration(for: audioURL)
+        guard TranscriptTruncationDetector.isTruncated(text, audioDuration: duration),
+            !shouldCancel()
+        else { return text }
+
+        logger.notice(
+            "Streamed transcript looks cut off (\(TranscriptTruncationDetector.letters(text), privacy: .public) letters in \(String(format: "%.1f", duration), privacy: .public)s); re-decoding in batch"
+        )
+        do {
+            let attempt = TranscriptionOutputFilter.filter(
+                try await serviceRegistry.transcribe(audioURL: audioURL, model: model, context: context))
+            guard TranscriptTruncationDetector.prefersRetry(attempt, over: text) else {
+                logger.notice("Batch re-decode was no longer; keeping the stream")
+                return text
+            }
+            logger.notice(
+                "Replaced a cut-off stream with the batch re-decode (\(TranscriptTruncationDetector.letters(attempt), privacy: .public) letters)"
+            )
+            return attempt
+        } catch {
+            logger.error("Batch re-decode failed: \(error.localizedDescription, privacy: .public)")
+            return text
+        }
+    }
+
     /// Re-runs the retained audio through the recording's fallback model when
     /// the transcript reads as nonsense, and returns the fallback's transcript
     /// when it reads clearly better. Nil keeps the primary.
@@ -202,6 +237,15 @@ class TranscriptionPipeline {
             }
             let vocabulary = vocabularyPreparation.finish()
             text = TranscriptionOutputFilter.filter(text)
+            if session != nil {
+                text = await recoverTruncatedStream(
+                    text,
+                    audioURL: audioURL,
+                    model: model,
+                    context: transcriptionConfiguration.requestContext.withVocabulary(transcriptionVocabulary),
+                    shouldCancel: shouldCancel
+                )
+            }
             text = await recoverWrongLanguage(
                 text,
                 audioURL: audioURL,

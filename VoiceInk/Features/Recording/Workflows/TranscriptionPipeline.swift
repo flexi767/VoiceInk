@@ -59,6 +59,52 @@ class TranscriptionPipeline {
         }
     }
 
+    /// Re-runs the retained audio through the recording's fallback model when
+    /// the transcript reads as nonsense, and returns the fallback's transcript
+    /// when it reads clearly better. Nil keeps the primary.
+    private func recoverNonsense(
+        _ text: String,
+        audioURL: URL,
+        configuration: TranscriptionRuntimeConfiguration,
+        shouldCancel: () -> Bool
+    ) async -> (text: String, model: any TranscriptionModel)? {
+        guard let fallback = configuration.fallback else { return nil }
+
+        let duration = await AudioFileMetadata.duration(for: audioURL)
+        let candidates = configuration.languageCandidates
+        guard
+            let reason = TranscriptNonsenseDetector.reason(
+                for: text, audioDuration: duration, candidates: candidates)
+        else { return nil }
+
+        logger.notice(
+            "Transcript reads as nonsense (\(reason.rawValue, privacy: .public)); re-running with \(fallback.model.displayName, privacy: .public)"
+        )
+        guard !shouldCancel() else { return nil }
+
+        do {
+            let attempt = TranscriptionOutputFilter.filter(
+                try await serviceRegistry.transcribe(
+                    audioURL: audioURL,
+                    model: fallback.model,
+                    context: TranscriptionRequestContext(language: fallback.language, prompt: nil)
+                ))
+            guard
+                TranscriptNonsenseDetector.prefersFallback(
+                    attempt, over: text, primaryReason: reason,
+                    audioDuration: duration, candidates: candidates)
+            else {
+                logger.notice("Fallback did not read better; keeping the primary")
+                return nil
+            }
+            logger.notice("Replaced a nonsense transcript with the fallback model's")
+            return (attempt, fallback.model)
+        } catch {
+            logger.error("Fallback transcription failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     init(
         modelContext: ModelContext,
         serviceRegistry: TranscriptionServiceRegistry,
@@ -104,6 +150,9 @@ class TranscriptionPipeline {
             vocabularyPreparation.finish()
         }
         let model = transcriptionConfiguration.model
+        /// The model whose transcript was kept: `model`, unless the nonsense
+        /// fallback replaced it.
+        var transcribedModel = model
         var finalText: String?
         var responseError: String?
         var outputForDelivery: OutputRuntimeConfiguration?
@@ -160,6 +209,15 @@ class TranscriptionPipeline {
                 configuration: transcriptionConfiguration,
                 shouldCancel: shouldCancel
             )
+            if let recovered = await recoverNonsense(
+                text,
+                audioURL: audioURL,
+                configuration: transcriptionConfiguration,
+                shouldCancel: shouldCancel
+            ) {
+                text = recovered.text
+                transcribedModel = recovered.model
+            }
             let transcriptionDuration = Date().timeIntervalSince(transcriptionStart)
 
             if shouldCancel() {
@@ -200,7 +258,7 @@ class TranscriptionPipeline {
 
             transcription.text = cleanedText
             transcription.duration = actualDuration
-            transcription.transcriptionModelName = model.displayName
+            transcription.transcriptionModelName = transcribedModel.displayName
             transcription.transcriptionDuration = transcriptionDuration
             transcription.modeName = modeMetadata.name
             transcription.modeEmoji = modeMetadata.emoji

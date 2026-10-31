@@ -148,3 +148,26 @@ These were applied to the installed app's settings, separate from code:
 2. Build + sign + install (see build/signing section).
 3. Set the mode: transcription `ggml-large-v3-turbo`, language `auto`, realtime off; keep the
    MateView mic. Grant Accessibility after install.
+
+---
+
+## Bulgarian → Whisper routing and nonsense fallback (2026-10-31)
+
+Branch `feat/bulgarian-whisper-routing`, on top of `main` `729817b0`.
+
+- **Per-keyboard model** (`KeyboardLanguageModelOverride`): in a `follow_keyboard`
+  mode, the layout active at recording start can pick a different model. Live
+  setting, no UI yet:
+  `defaults write com.prakashjoshipax.VoiceInk KeyboardLanguageModelOverrides -dict bg ggml-large-v3-turbo`.
+  The Bulgarian layout then transcribes with Whisper forced to `bg` (no streaming);
+  every other layout keeps the mode's model (Nemotron, streaming). Whisper is loaded
+  at recording start and freed after each dictation, as before.
+  Remove with `defaults delete com.prakashjoshipax.VoiceInk KeyboardLanguageModelOverrides`.
+- **Nonsense fallback** (`TranscriptNonsenseDetector`, `TranscriptionPipeline.recoverNonsense`):
+  after wrong-language recovery, a transcript that loops a phrase, contains subtitle
+  credits, exceeds 30 letters/s, still fails the language check, or has ≥50% of ≥4
+  words unknown to every keyboard language's macOS dictionary is re-run through the
+  other model (Whisper ↔ the mode's model). The fallback wins only when it is not
+  itself broken and, against a merely misspelled primary, is ≥25 points better
+  spelled. History records the model whose text was kept. Only active while an
+  override is configured.

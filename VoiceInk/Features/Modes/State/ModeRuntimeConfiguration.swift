@@ -9,6 +9,9 @@ struct TranscriptionRuntimeConfiguration {
     /// element whenever recovery does not apply.
     let languageCandidates: [String]
     let isRealtimeEnabled: Bool
+    /// A second model to re-run the audio with when the transcript reads as
+    /// nonsense. Frozen at recording start, like the languages.
+    var fallback: TranscriptionFallback? = nil
 
     /// Candidates to retry the retained audio with when the primary transcript
     /// lands outside the user's keyboard languages.
@@ -29,6 +32,11 @@ struct TranscriptionRuntimeConfiguration {
             prompt: model.provider == .whisper ? WhisperPrompt.resolvedPrompt(for: language) : nil
         )
     }
+}
+
+struct TranscriptionFallback {
+    let model: any TranscriptionModel
+    let language: String
 }
 
 struct TranscriptionFormattingConfiguration {
@@ -113,12 +121,50 @@ enum ModeRuntimeResolver {
         mode: ModeConfig? = nil,
         transcriptionModelManager: TranscriptionModelManager
     ) -> TranscriptionRuntimeConfiguration? {
-        transcriptionConfiguration(
-            from: transcriptionModelResolution(
-                mode: mode,
-                transcriptionModelManager: transcriptionModelManager
-            )
+        let resolution = transcriptionModelResolution(
+            mode: mode,
+            transcriptionModelManager: transcriptionModelManager
         )
+        let overrides = KeyboardLanguageModelOverride.configuredOverrides()
+        guard case .available(let mode, let modeModel) = resolution, !overrides.isEmpty else {
+            return transcriptionConfiguration(from: resolution)
+        }
+
+        func usableModel(_ key: String) -> (any TranscriptionModel)? {
+            guard
+                let model = TranscriptionModelRegistry.model(
+                    forSelectionKey: key, in: transcriptionModelManager.allAvailableModels),
+                transcriptionModelManager.usableModels.contains(where: {
+                    $0.selectionKey == model.selectionKey
+                })
+            else { return nil }
+            return model
+        }
+
+        // Read at recording start, like the languages: the layout the user had
+        // when they pressed the shortcut picks the model.
+        var model = modeModel
+        if let key = KeyboardLanguageModelOverride.selectionKey(
+            modeLanguage: mode.selectedLanguage,
+            activeKeyboard: KeyboardLanguagePolicy.activeKeyboardBaseSubtag(),
+            overrides: overrides
+        ), let overrideModel = usableModel(key) {
+            model = overrideModel
+        }
+
+        guard var configuration = transcriptionConfiguration(from: .available(mode: mode, model: model))
+        else { return nil }
+
+        if let key = KeyboardLanguageModelOverride.fallbackSelectionKey(
+            primaryKey: model.selectionKey, modeKey: modeModel.selectionKey, overrides: overrides),
+            let fallbackModel = usableModel(key),
+            let fallbackConfiguration = transcriptionConfiguration(
+                from: .available(mode: mode, model: fallbackModel))
+        {
+            configuration.fallback = TranscriptionFallback(
+                model: fallbackModel, language: fallbackConfiguration.language)
+        }
+        return configuration
     }
 
     static func transcriptionConfiguration(

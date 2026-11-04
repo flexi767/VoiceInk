@@ -167,11 +167,14 @@ enum KeyboardLanguagePolicy {
         return orderedLanguages(active: sources.active, enabled: sources.enabled, supported: codes)
     }
 
+    /// The active layout's base language subtag, e.g. `bg`.
+    static func activeKeyboardBaseSubtag() -> String? {
+        readInputSources().active?.languages.first.flatMap(baseSubtag)
+    }
+
     /// The active layout's two-letter code for the recorder badge, e.g. `BG`.
     static func activeKeyboardDisplayCode() -> String? {
-        let sources = readInputSources()
-        guard let identifier = sources.active?.languages.first else { return nil }
-        return baseSubtag(identifier)?.uppercased()
+        activeKeyboardBaseSubtag()?.uppercased()
     }
 
     static func twoLetterDisplayCode(for language: String?) -> String {

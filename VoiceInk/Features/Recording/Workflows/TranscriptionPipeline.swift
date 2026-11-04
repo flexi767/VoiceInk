@@ -26,119 +26,8 @@ class TranscriptionPipeline {
     private let serviceRegistry: TranscriptionServiceRegistry
     private let enhancementService: AIEnhancementService?
     private let delivery = TranscriptionDelivery()
+    private let recovery: TranscriptRecovery
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "TranscriptionPipeline")
-
-    /// Retries the retained audio with each frozen keyboard language when the
-    /// primary transcript lands outside the languages the user types.
-    ///
-    /// Runs only when the recording actually froze more than one candidate,
-    /// which `KeyboardLanguagePolicy.recordingLanguages` reserves for
-    /// follow-keyboard and auto-detect. An explicit language choice is never
-    /// second-guessed.
-    private func recoverWrongLanguage(
-        _ text: String,
-        audioURL: URL,
-        model: any TranscriptionModel,
-        configuration: TranscriptionRuntimeConfiguration,
-        shouldCancel: () -> Bool
-    ) async -> String {
-        guard !configuration.recoveryCandidates.isEmpty else { return text }
-
-        return await TranscriptLanguageRecovery.selectTranscript(
-            primary: text,
-            validationCandidates: configuration.languageCandidates,
-            retryCandidates: configuration.recoveryCandidates
-        ) { language in
-            if shouldCancel() { throw CancellationError() }
-            let attempt = try await self.serviceRegistry.transcribe(
-                audioURL: audioURL,
-                model: model,
-                context: TranscriptionRequestContext(language: language, prompt: nil)
-            )
-            return TranscriptionOutputFilter.filter(attempt)
-        }
-    }
-
-    /// Re-decodes the retained audio in one batch pass, same model and language,
-    /// when a streaming transcript is too short for its recording. Returns the
-    /// streamed text unless the retry carries more of the speech.
-    private func recoverTruncatedStream(
-        _ text: String,
-        audioURL: URL,
-        model: any TranscriptionModel,
-        context: TranscriptionRequestContext,
-        shouldCancel: () -> Bool
-    ) async -> String {
-        let duration = await AudioFileMetadata.duration(for: audioURL)
-        guard TranscriptTruncationDetector.isTruncated(text, audioDuration: duration),
-            !shouldCancel()
-        else { return text }
-
-        logger.notice(
-            "Streamed transcript looks cut off (\(TranscriptTruncationDetector.letters(text), privacy: .public) letters in \(String(format: "%.1f", duration), privacy: .public)s); re-decoding in batch"
-        )
-        do {
-            let attempt = TranscriptionOutputFilter.filter(
-                try await serviceRegistry.transcribe(audioURL: audioURL, model: model, context: context))
-            guard TranscriptTruncationDetector.prefersRetry(attempt, over: text) else {
-                logger.notice("Batch re-decode was no longer; keeping the stream")
-                return text
-            }
-            logger.notice(
-                "Replaced a cut-off stream with the batch re-decode (\(TranscriptTruncationDetector.letters(attempt), privacy: .public) letters)"
-            )
-            return attempt
-        } catch {
-            logger.error("Batch re-decode failed: \(error.localizedDescription, privacy: .public)")
-            return text
-        }
-    }
-
-    /// Re-runs the retained audio through the recording's fallback model when
-    /// the transcript reads as nonsense, and returns the fallback's transcript
-    /// when it reads clearly better. Nil keeps the primary.
-    private func recoverNonsense(
-        _ text: String,
-        audioURL: URL,
-        configuration: TranscriptionRuntimeConfiguration,
-        shouldCancel: () -> Bool
-    ) async -> (text: String, model: any TranscriptionModel)? {
-        guard let fallback = configuration.fallback else { return nil }
-
-        let duration = await AudioFileMetadata.duration(for: audioURL)
-        let candidates = configuration.languageCandidates
-        guard
-            let reason = TranscriptNonsenseDetector.reason(
-                for: text, audioDuration: duration, candidates: candidates)
-        else { return nil }
-
-        logger.notice(
-            "Transcript reads as nonsense (\(reason.rawValue, privacy: .public)); re-running with \(fallback.model.displayName, privacy: .public)"
-        )
-        guard !shouldCancel() else { return nil }
-
-        do {
-            let attempt = TranscriptionOutputFilter.filter(
-                try await serviceRegistry.transcribe(
-                    audioURL: audioURL,
-                    model: fallback.model,
-                    context: TranscriptionRequestContext(language: fallback.language, prompt: nil)
-                ))
-            guard
-                TranscriptNonsenseDetector.prefersFallback(
-                    attempt, over: text, primaryReason: reason,
-                    audioDuration: duration, candidates: candidates)
-            else {
-                logger.notice("Fallback did not read better; keeping the primary")
-                return nil
-            }
-            logger.notice("Replaced a nonsense transcript with the fallback model's")
-            return (attempt, fallback.model)
-        } catch {
-            logger.error("Fallback transcription failed: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
 
     init(
         modelContext: ModelContext,
@@ -148,6 +37,9 @@ class TranscriptionPipeline {
         self.modelContext = modelContext
         self.serviceRegistry = serviceRegistry
         self.enhancementService = enhancementService
+        self.recovery = TranscriptRecovery(transcribe: { audioURL, model, context in
+            try await serviceRegistry.transcribe(audioURL: audioURL, model: model, context: context)
+        })
     }
 
     /// Run the full pipeline for a given transcription record.
@@ -237,31 +129,16 @@ class TranscriptionPipeline {
             }
             let vocabulary = vocabularyPreparation.finish()
             text = TranscriptionOutputFilter.filter(text)
-            if session != nil {
-                text = await recoverTruncatedStream(
-                    text,
-                    audioURL: audioURL,
-                    model: model,
-                    context: transcriptionConfiguration.requestContext.withVocabulary(transcriptionVocabulary),
-                    shouldCancel: shouldCancel
-                )
-            }
-            text = await recoverWrongLanguage(
+            let recovered = await recovery.recover(
                 text,
                 audioURL: audioURL,
-                model: model,
+                streamed: session != nil,
+                context: transcriptionConfiguration.requestContext.withVocabulary(transcriptionVocabulary),
                 configuration: transcriptionConfiguration,
                 shouldCancel: shouldCancel
             )
-            if let recovered = await recoverNonsense(
-                text,
-                audioURL: audioURL,
-                configuration: transcriptionConfiguration,
-                shouldCancel: shouldCancel
-            ) {
-                text = recovered.text
-                transcribedModel = recovered.model
-            }
+            text = recovered.text
+            transcribedModel = recovered.model
             let transcriptionDuration = Date().timeIntervalSince(transcriptionStart)
 
             if shouldCancel() {
